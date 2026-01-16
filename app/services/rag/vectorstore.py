@@ -1,0 +1,1 @@
+# Código de conexão com Pinecone virá aqui
