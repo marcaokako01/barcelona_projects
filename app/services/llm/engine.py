@@ -12,7 +12,7 @@ try:
     from langchain.agents import AgentExecutor, create_openai_tools_agent
 except ImportError:
     # Se falhar, busca nos caminhos específicos (Bypass)
-    from langchain.agents.agent import AgentExecutor
+    from langchain.agents import AgentExecutor
     from langchain.agents.openai_tools.base import create_openai_tools_agent
 # -------------------------------------
 

@@ -1,7 +1,6 @@
-__pycache__/
-*.pyc
-.env
-.env.prod
-venv/
-antenv/
-.DS_Store
+env/
+.env.*
+*.pem
+*.pub
+*.key
+app.zip
