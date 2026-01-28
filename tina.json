@@ -1,0 +1,85 @@
+{
+  "id": "04903f09-7e10-49ce-8963-6023c59f02e3",
+  "orgId": "e227f84a-e711-4459-8276-ebdf4122e34b",
+  "name": "Riley",
+  "voice": {
+    "model": "aura",
+    "voiceId": "luna",
+    "provider": "deepgram",
+    "inputMinCharacters": 1
+  },
+  "createdAt": "2026-01-14T18:36:15.090Z",
+  "updatedAt": "2026-01-21T17:35:49.379Z",
+  "model": {
+    "url": "https://barcelona-ai-vapi-web-ecfndtbxhce6h2hu.canadacentral-01.azurewebsites.net/api/v1/webhook/vapi",
+    "model": "gpt-4.1-mini",
+    "messages": [
+      {
+        "role": "system",
+        "content": "Identidade e Propósito Você é Tina, um assistente virtual de voz da Barcelona Partners. Seu objetivo é realizar o primeiro atendimento de potenciais clientes, explicando as vantagens da alavancagem patrimonial e do consórcio de caminhões de forma profissional e eficiente.\n\nPersonalidade e Tom de Voz\n\nProfissional e Confiante: Você representa uma consultoria financeira de alto nível.\n\nPrestativo: Demonstre paciência e clareza ao explicar conceitos financeiros.\n\nDireto ao ponto: Evite respostas excessivamente longas para manter a fluidez da conversa por voz.\n\nFluxo da Conversa\n\nAbertura: Apresente-se como parte da equipe da Fernanda Aro na Barcelona Partners.\n\nQualificação: Pergunte se o cliente já investe em imóveis ou se possui capital parado para alavancagem.\n\nInformação: Forneça detalhes sobre consórcio e alavancagem patrimonial conforme solicitado.\n\nFechamento: Tente agendar um momento para que um consultor sênior entre em contato.\n\nDiretrizes de Resposta\n\nResponda sempre em Português (Brasil).\n\nFaça apenas uma pergunta por vez para não sobrecarregar o cliente.\n\nUse confirmações explícitas (ex: \"Entendi, você se chama Marcos, correto?\")."
+      }
+    ],
+    "provider": "custom-llm",
+    "temperature": 0.5
+  },
+  "firstMessage": "Olá, aqui é da Barcelona Partners. Com quem eu falo?",
+  "voicemailMessage": "Hello, this is Riley from Wellness Partners. I'm calling about your appointment. Please call us back at your earliest convenience so we can confirm your scheduling details.",
+  "endCallMessage": "Thank you for scheduling with Wellness Partners. Your appointment is confirmed, and we look forward to seeing you soon. Have a wonderful day!",
+  "transcriber": {
+    "model": "nova-3",
+    "language": "pt-BR",
+    "provider": "deepgram",
+    "endpointing": 1000,
+    "confidenceThreshold": 0.2
+  },
+  "startSpeakingPlan": {
+    "waitSeconds": 0,
+    "smartEndpointingEnabled": false
+  },
+  "backgroundSound": "off"
+},
+  "silenceTimeoutSeconds": 63,
+  "clientMessages": [
+    "conversation-update",
+    "function-call",
+    "hang",
+    "model-output",
+    "speech-update",
+    "status-update",
+    "transfer-update",
+    "transcript",
+    "tool-calls",
+    "user-interrupted",
+    "voice-input",
+    "workflow.node.started",
+    "assistant.started"
+  ],
+  "serverMessages": [
+    "conversation-update",
+    "end-of-call-report",
+    "function-call",
+    "hang",
+    "speech-update",
+    "status-update",
+    "tool-calls",
+    "transfer-destination-request",
+    "handoff-destination-request",
+    "user-interrupted",
+    "assistant.started"
+  ],
+  "endCallPhrases": [
+    "goodbye",
+    "talk to you soon"
+  ],
+  "hipaaEnabled": false,
+  "backgroundSound": "off",
+  "startSpeakingPlan": {
+    "waitSeconds": 0,
+    "smartEndpointingEnabled": "livekit"
+  },
+  "compliancePlan": {
+    "hipaaEnabled": false,
+    "pciEnabled": false
+  },
+  "isServerUrlSecretSet": false
+}

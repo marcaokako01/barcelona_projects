@@ -1,7 +1,11 @@
 # app/services/llm/tools.py
+try:
+    from langchain_pinecone import PineconeVectorStore
+except ImportError:
+    from langchain_pinecone import Pinecone as PineconeVectorStore
+
 from langchain.tools import tool
 from langchain_openai import OpenAIEmbeddings
-from langchain_pinecone import PineconeVectorStore
 from app.core.config import settings
 
 @tool
@@ -59,14 +63,21 @@ def search_knowledge_base(query: str) -> str:
         # 3. Faz a busca dos 3 trechos mais parecidos com a pergunta
         docs = vectorstore.similarity_search(query, k=3)
         
-        # 4. Junta as respostas encontradas em um texto só
-        result_text = "\n\n".join([doc.page_content for doc in docs])
+        # 4. Junta as respostas incluindo os metadados de Administradora e Categoria
+        result_chunks = []
+        for doc in docs:
+            admin = doc.metadata.get('administradora', 'Geral')
+            cat = doc.metadata.get('categoria', 'Informativo')
+            conteudo = doc.page_content
+            result_chunks.append(f"[{admin} - {cat}]: {conteudo}")
+
+        result_text = "\n\n".join(result_chunks)
         
         if not result_text:
-            return "Não encontrei informações específicas sobre isso no manual."
+            return "Não encontrei informações específicas sobre isso no manual das operadoras."
             
-        return f"Informações encontradas no Manual:\n{result_text}"
-
+        return f"Informações encontradas na Base de Conhecimento:\n{result_text}"
+        
     except Exception as e:
         print(f"❌ Erro no RAG: {e}")
         return "Erro ao consultar o manual interno."

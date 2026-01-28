@@ -1,6 +1,5 @@
-from fastapi import FastAPI
-
-app = FastAPI()
+# application.py
+from app.main import app  # esta é a app real
 
 @app.get("/")
 def health():
