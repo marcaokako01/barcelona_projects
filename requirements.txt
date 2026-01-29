@@ -6,7 +6,7 @@ pydantic-settings
 python-dotenv
 openai
 requests
-langchain
+langchain>=0.2.0,<0.3.0
 langchain-openai
 langchain-pinecone
 langchain-community

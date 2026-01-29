@@ -1,20 +1,15 @@
-# app/services/llm/engine.py
+## app/services/llm/engine.py
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from app.core.config import settings
 from app.services.llm.prompts import SYSTEM_PROMPT
 from app.services.llm.tools import calculate_consortium_installment, search_knowledge_base
 
-# --- CORREÇÃO CIRÚRGICA DE IMPORTS ---
-# Buscamos as classes direto nos arquivos fonte para evitar erros de versão/índice
-try:
-    # Tenta o caminho padrão (moderno)
-    from langchain.agents import AgentExecutor, create_openai_tools_agent
-except ImportError:
-    # Se falhar, busca nos caminhos específicos (Bypass)
-    from langchain.agents import AgentExecutor
-    from langchain.agents.openai_tools.base import create_openai_tools_agent
-# -------------------------------------
+# Importação direta compatível com as versões 0.2 e 0.3 (Azure)
+from langchain.agents import AgentExecutor, create_openai_tools_agent
+
+# Importação direta compatível com LangChain 0.2 e 0.3
+from langchain.agents import AgentExecutor, create_openai_tools_agent
 
 class LLMEngine:
     def __init__(self):

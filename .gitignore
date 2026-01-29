@@ -6,3 +6,9 @@ env/
 app.zip
 
 .env
+
+# Virtualenv
+.venv/
+__pycache__/
+*.pyc
+
