@@ -1,83 +1,71 @@
-# main.py
-from fastapi import FastAPI, Request
-from pydantic import BaseModel
-from typing import List, Literal, Optional, Any, Dict
 import time
 import uuid
-
-# IMPORTANTE: Importar o seu orquestrador
+import logging
+from typing import List, Optional, Dict
+from fastapi import FastAPI
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from app.services.orchestrator import ConversationOrchestrator
 
-app = FastAPI(title="Barcelona Vapi Gateway", version="1.0.0")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Inicializa o orquestrador (que carrega o engine e as ferramentas)
+app = FastAPI(title="Barcelona Vapi Gateway", version="1.2.0")
 orchestrator = ConversationOrchestrator()
 
-@app.get("/")
-def health():
-    return {"status": "ok", "app": "barcelona"}
-
 class ChatMessage(BaseModel):
-    role: Literal["system", "user", "assistant", "tool"]
+    role: str
     content: Optional[str] = None
-    tool_calls: Optional[List[Any]] = None
 
 class ChatCompletionsRequest(BaseModel):
     model: str
     messages: List[ChatMessage]
-    temperature: Optional[float] = 0.2
 
-# ... (mantenha seus imports e classes iniciais)
+@app.get("/")
+def health():
+    return {"status": "ok"}
 
-@app.post("/api/v1/webhook/vapi/chat/completions")
-async def vapi_chat_completions(payload: ChatCompletionsRequest) -> Dict[str, Any]:
-    """
-    Este endpoint substitui o cérebro da Vapi pelo seu código na Azure.
-    """
+# ROTA SIMPLIFICADA PARA CASAR COM O PAINEL DA VAPI
+@app.post("/chat/completions")
+async def vapi_chat_completions(payload: ChatCompletionsRequest):
     try:
-        # 1. Pega a última mensagem do utilizador
-        user_messages = [m for m in payload.messages if m.role == "user"]
-        last_input = user_messages[-1].content if user_messages else ""
+        if not payload.messages:
+            return JSONResponse(content={"choices": []})
 
-        # 2. Chama o seu orquestrador
-        response_text = await orchestrator.get_response(last_input, "vapi_call")
+        # Pega a última fala do usuário com segurança
+        last_input = payload.messages[-1].content or ""
+        
+        # Filtra histórico removendo mensagens sem conteúdo (evita erro de NoneType)
+        history = []
+        for m in payload.messages[:-1]:
+            if m.content:
+                history.append({"role": m.role, "content": m.content})
 
-        # Fallback caso o texto venha vazio
-        if not response_text:
-            response_text = "Desculpe, não consegui processar sua solicitação agora."
+        logger.info(f"🎤 Recebido: {last_input}")
+        
+        response_text = await orchestrator.get_response(last_input, "vapi_call", history=history)
 
-        # 3. Retorna no formato que a Vapi espera (IDÊNTICO à OpenAI)
-        return {
+        # RETORNO CIRÚRGICO: Sem campo 'usage' e com strip() no texto
+        return JSONResponse(content={
             "id": f"chatcmpl-{uuid.uuid4().hex}",
             "object": "chat.completion",
             "created": int(time.time()),
             "model": payload.model,
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": str(response_text) # Garante que é string limpa
-                    },
-                    "finish_reason": "stop"
-                }
-            ],
-            "usage": { # ESTE CAMPO É OBRIGATÓRIO PARA A TINA FALAR
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0
-            }
-        }
-    except Exception as e:
-        # Em caso de erro, retorna um JSON mínimo para a Vapi não ficar muda
-        return {
-            "choices": [{"message": {"role": "assistant", "content": "Tive um erro interno."}}],
-            "usage": {"total_tokens": 0}
-        }
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant", 
+                    "content": str(response_text).strip()
+                },
+                "finish_reason": "stop"
+            }]
+        })
 
-# Endpoint para receber os dados do lead (ferramenta enviar_agendamento)
-@app.post("/api/v1/leads/")
-async def receive_lead(data: Dict[str, Any]):
-    # Aqui você pode salvar no seu banco de dados (Supabase/Postgres)
-    print(f"Lead recebido: {data}")
-    return {"status": "success", "message": "Lead guardado com sucesso"}
+    except Exception as e:
+        logger.error(f"❌ ERRO: {str(e)}")
+        return JSONResponse(content={
+            "choices": [{
+                "message": {"role": "assistant", "content": "Pode repetir?"},
+                "finish_reason": "stop"
+            }]
+        })
