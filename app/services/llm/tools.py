@@ -4,9 +4,36 @@ try:
 except ImportError:
     from langchain_pinecone import Pinecone as PineconeVectorStore
 
+import requests
 from langchain.tools import tool
 from langchain_openai import OpenAIEmbeddings
 from app.core.config import settings
+
+@tool
+def api_request_tool(nome: str, data_hora: str, telefone: str, resumo: str = "Agendamento"):
+    """
+    Use esta ferramenta IMEDIATAMENTE quando o cliente concordar com uma data e hora para agendar.
+    Ela envia os dados para o sistema de CRM/Agenda.
+    """
+    # URL DO SEU N8N (Já corrigida para produção, sem o -test)
+    webhook_url = "https://tina.barcelonapartnersinvest.com.br/webhook/agendamento-tina"
+    
+    payload = {
+        "nome": nome,
+        "data_hora": data_hora,
+        "telefone": telefone,
+        "resumo": resumo
+    }
+    
+    try:
+        # O próprio servidor Azure faz o disparo para o n8n
+        response = requests.post(webhook_url, json=payload, timeout=5)
+        if response.status_code == 200:
+            return "SUCESSO: O agendamento foi enviado para o sistema. Confirme para o cliente."
+        else:
+            return f"ERRO: O sistema retornou código {response.status_code}."
+    except Exception as e:
+        return f"ERRO TÉCNICO ao tentar agendar: {str(e)}"
 
 @tool
 def calculate_consortium_installment(credit_value: float, months: int, admin_tax_percent: float) -> str:

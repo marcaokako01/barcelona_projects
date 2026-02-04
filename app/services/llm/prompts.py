@@ -48,6 +48,7 @@ CLOSING_TECHNIQUE = """
 
 **IMPORTANTE:** NÃO pergunte "Ficou alguma dúvida?". Agende e encerre.
 """
+SYSTEM_PROMPT = f"{BASE_IDENTITY}\n\n{SALES_STRATEGY}\n\n{CLOSING_TECHNIQUE}"
 
 # Se você usa alguma função para juntar esses prompts no código principal, 
 # certifique-se de concatenar: BASE_IDENTITY + SALES_STRATEGY + CLOSING_TECHNIQUE
