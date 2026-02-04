@@ -9,27 +9,32 @@
 
 
 #parte 1 =  Zip
-# Tenta apagar, se falhar, renomeia o arquivo travado para liberar o nome
-try { Remove-Item "app.zip" -Force -ErrorAction Stop } catch { Rename-Item "app.zip" "app_old_$(Get-Date -Format 'HHmm').zip" -ErrorAction SilentlyContinue }
+# 1. Limpeza total de arquivos temporários
+if (Test-Path "app.zip") { Remove-Item "app.zip" -Force }
 
-# CRIA O ZIP COM O TAR (O comando que você confia)
+# 2. Criar o ZIP garantindo que o startup_oryx_fix.sh esteja na RAIZ
+# O comando abaixo coloca a pasta 'app', o 'requirements.txt' e o '.sh' no topo do arquivo
 tar -a -c -f app.zip app requirements.txt startup_oryx_fix.sh
 
-# CONFIRMA A ESTRUTURA
-tar -tf app.zip
+# 3. VERIFICAÇÃO DE SEGURANÇA (Observe a saída deste comando)
+Write-Host "`n--- VERIFICANDO CONTEÚDO DO ZIP ---" -ForegroundColor Cyan
+tar -tf app.zip | Select-String "startup_oryx_fix.sh", "app/main.py", "app/api/v1/endpoints/webhook.py"
 
-#Parte 2 = sequencia de deploy 
-# 1. Envia os arquivos novos (o código que integra o Pinecone)
-az webapp deploy --resource-group "GrupoFinal" --name "barcelona-ai-vapi-web" --src-path .\app.zip --type zip
+# 4. DEPLOY DIRETO (Usando o método mais robusto contra erro 502)
+Write-Host "`n--- INICIANDO DEPLOY NA AZURE ---" -ForegroundColor Cyan
+az webapp deployment source config-zip --resource-group "GrupoFinal" --name "barcelona-ai-vapi-web" --src .\app.zip
 
-# 2. Garante que o comando de inicialização está apontando para o script correto
+# 5. CONFIGURAÇÃO DE STARTUP (Ajustada para a raiz)
 az webapp config set --resource-group "GrupoFinal" --name "barcelona-ai-vapi-web" --startup-file "bash startup_oryx_fix.sh"
 
-# 3. Reinicia para limpar a memória e subir a nova versão
+# 6. REINÍCIO FINAL
 az webapp restart --resource-group "GrupoFinal" --name "barcelona-ai-vapi-web"
 
-# 4. Acompanha a subida (A vitória é quando ler "Application startup complete")
-az webapp log tail --resource-group "GrupoFinal" --name "barcelona-ai-vapi-web"
+
+#troca tudo por isso
+powershell -ExecutionPolicy Bypass -File .\deploy.ps1 -SkipLogTail
+
+
 
 #Acompnhar os logs
 az webapp log tail --resource-group "GrupoFinal" --name "barcelona-ai-vapi-web"

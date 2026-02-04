@@ -1,49 +1,96 @@
-# --- CONFIGURACAO ---
-$ResourceGroup = "GrupoFinal"
-$AppName = "barcelona-ai-vapi-web"
-$ZipName = "app.zip"
+param(
+  [string]$ResourceGroup = "GrupoFinal",
+  [string]$AppName = "barcelona-ai-vapi-web",
+  [string]$ZipPath = ".\\app.zip",
+  [string]$StartupFile = "bash startup_oryx_fix.sh",
+  #[string]$StartupFile = "bash /home/site/wwwroot/startup_oryx_fix.sh",
+  [switch]$SkipLogTail,
+  [switch]$DryRun,
+  [switch]$SkipKudu,
+  [switch]$SkipHttp,
+  [switch]$FixKudu
+)
+
 $ErrorActionPreference = "Stop"
 
-# Evita o erro 504 local aumentando o tempo de espera da CLI
-$env:AZURE_CLI_HTTP_RETRY_DELAY=60
+function Write-Step($msg) { Write-Host "`n=== $msg ===" -ForegroundColor Cyan }
 
-Write-Host "--- INICIANDO DEPLOY ---" -ForegroundColor Magenta
-
-# 1. Limpeza física do ZIP antigo para evitar lixo de cache
-if (Test-Path $ZipName) { Remove-Item $ZipName -Force }
-Write-Host "[1/4] Limpando caches..." -ForegroundColor Cyan
-Get-ChildItem -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-
-# 2. Criacao do ZIP usando caminhos diretos (sem ./)
-Write-Host "[2/4] Criando pacote..." -ForegroundColor Cyan
-if (-not (Test-Path "app")) {
-    Write-Host "[ERRO] Pasta 'app' nao encontrada!" -ForegroundColor Red
-    exit
+# 1. Criação do ZIP com estrutura plana (garante que 'app' esteja na raiz)
+function Create-CleanZip() {
+    Write-Step "Criando ZIP Limpo"
+    if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
+    # Garante que os arquivos fiquem na RAIZ do zip
+    & tar -a -c -f $ZipPath app requirements.txt startup_oryx_fix.sh
+    Write-Host "OK: $ZipPath criado com sucesso."
 }
 
-# Usar caminhos sem o ponto evita problemas de indexação no tar do Windows
-tar -a -c -f $ZipName app requirements.txt startup_oryx_fix.sh
-
-# 3. Validacao Técnica (Ajustada para sua correção de Count)
-Write-Host "[3/4] Validando pacote..." -ForegroundColor Cyan
-$lista = tar -tf $ZipName
-$temApp = ($lista -match "app[\\/]")
-$temStartup = ($lista -match "startup_oryx_fix.sh")
-
-if (-not $temApp -or $temApp.Count -eq 0 -or -not $temStartup) {
-    Write-Host "[ERRO] Pacote incompleto ou arquivo startup faltando!" -ForegroundColor Red
-    exit
+# 2. Configurações críticas para evitar o 503 e erro de módulo
+function Set-AzureConfigs() {
+    Write-Step "Configurando Ambiente Azure"
+    # SCM_DO_BUILD_DURING_DEPLOYMENT=true força a instalação dos módulos no servidor
+    & az webapp config appsettings set --resource-group $ResourceGroup --name $AppName --settings `
+        SCM_DO_BUILD_DURING_DEPLOYMENT=true `
+        WEBSITES_CONTAINER_START_TIME_LIMIT=1800 `
+        WEBSITES_PORT=8000 `
+        PYTHON_VERSION=3.11 | Out-Null
+    
+    & az webapp config set --resource-group $ResourceGroup --name $AppName --startup-file $StartupFile | Out-Null
+    Write-Host "OK: Configurações de build e startup aplicadas."
 }
-Write-Host "[OK] Estrutura validada." -ForegroundColor Green
 
-# 4. Azure Config e Deploy
-Write-Host "[4/4] Enviando para o Azure..." -ForegroundColor Cyan
-az webapp config appsettings set -g $ResourceGroup -n $AppName --settings SCM_DO_BUILD_DURING_DEPLOYMENT=1 WEBSITES_PORT=8000 GUNICORN_TIMEOUT=600 | Out-Null
+function Deploy-Zip() {
+  Write-Step "Executando Deploy (Clean)"
+  & az webapp deploy `
+    --resource-group $ResourceGroup `
+    --name $AppName `
+    --src-path $ZipPath `
+    --type zip `
+    --clean true `
+    --restart true `
+    --timeout 1800000 
+}
 
-# Ajustamos para o comando de inicialização padrão do Azure Linux
-az webapp config set -g $ResourceGroup -n $AppName --startup-file "bash startup_oryx_fix.sh" | Out-Null
+# --- INÍCIO DA EXECUÇÃO ---
 
-az webapp deploy --resource-group $ResourceGroup --name $AppName --src-path $ZipName --type zip
+Write-Step "Pre-checks"
+& az account show 1>$null
+Write-Host "OK: Azure CLI autenticado"
 
-Write-Host "--- DEPLOY CONCLUIDO COM SUCESSO ---" -ForegroundColor Green
-az webapp restart -g $ResourceGroup -n $AppName
+if (!(Test-Path "app\\main.py")) { throw "Erro: Pasta 'app' não encontrada localmente." }
+
+Create-CleanZip
+Set-AzureConfigs
+
+if ($DryRun) {
+    Write-Host "DryRun: Preparação concluída. Nenhum arquivo foi enviado." -ForegroundColor Yellow
+    exit 0
+}
+
+Deploy-Zip
+
+if (-not $SkipHttp) {
+    Write-Step "Validando Health Check"
+    $hostName = (& az webapp show --resource-group $ResourceGroup --name $AppName --query defaultHostName -o tsv).Trim()
+    $url = "https://$hostName/"
+    
+    Write-Host "Testando $url (Aguardando o Oryx instalar dependências)..."
+    for ($i=1; $i -le 15; $i++) {
+        try {
+            $resp = Invoke-RestMethod -Method Get -Uri $url -TimeoutSec 10
+            if ($resp.status -eq "ok") {
+                Write-Host "SUCESSO: Aplicação online!" -ForegroundColor Green
+                break
+            }
+        } catch {
+            # CORREÇÃO DO ERRO: Usando $($i) para evitar conflito com ':'
+            Write-Host "Tentativa $($i): Site subindo... aguardando 15s" -ForegroundColor Gray
+            Start-Sleep -Seconds 15
+        }
+        if ($i -eq 15) { throw "Health Check falhou após 15 tentativas. Verifique os logs." }
+    }
+}
+
+if (-not $SkipLogTail) {
+    Write-Step "Logs em tempo real (CTRL+C para sair)"
+    & az webapp log tail --resource-group $ResourceGroup --name $AppName
+}

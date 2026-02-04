@@ -1,0 +1,8 @@
+.venv
+env
+venv
+__pycache__
+.git
+.gitignore
+.vscode
+base_conhecimento

@@ -1,39 +1,50 @@
 #!/usr/bin/env bash
-set -e
+# Desativa interrupção imediata para permitir que a verificação de venv rode
+set +e
+
+echo "=== INICIANDO SCRIPT DE STARTUP BARCELONA ==="
 
 # 1. Definição do Diretório de Trabalho
-# No Azure, o código sempre fica em /home/site/wwwroot
 if [ -d "/home/site/wwwroot" ]; then
     ROOT_DIR="/home/site/wwwroot"
 else
     ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 fi
-
 cd "$ROOT_DIR"
 
-# 2. Configuração do Path (CRÍTICO para evitar o erro de 'Module Not Found')
-# Isso garante que 'import app' funcione de qualquer lugar do código
+# 2. Configuração do PYTHONPATH
 export PYTHONPATH="$ROOT_DIR:${PYTHONPATH:-}"
 
 # 3. Definições de Porta e Performance
-PORT="${WEBSITES_PORT:-${PORT:-8000}}"
-WORKERS="${WEB_CONCURRENCY:-2}"
-# Aumentamos o timeout para 600 para evitar que o Azure mate o worker durante o cold start
-TIMEOUT="${GUNICORN_TIMEOUT:-600}"
-
-# 4. Seleção de Módulo Fixa (Arquitetura Enterprise)
-# Em vez de IFs, definimos o padrão. Se você usa a estrutura do setup_full_project.py, 
-# o ponto de entrada é SEMPRE app.main:app
+PORT="${WEBSITES_PORT:-8000}"
+WORKERS=2
+TIMEOUT=600
 MODULE="app.main:app"
 
-echo "[startup] Iniciando Barcelona Vapi Gateway..."
-echo "[startup] CWD: $(pwd)"
-echo "[startup] PYTHONPATH: $PYTHONPATH"
-echo "[startup] Comando: Gunicorn $MODULE na porta $PORT"
+# 4. Localização e Ativação do VENV (Oryx padrão)
+VENV_PATH="/home/site/wwwroot/antenv"
+if [ -d "$VENV_PATH" ]; then
+    echo "[startup] Ativando venv em $VENV_PATH"
+    source "$VENV_PATH/bin/activate"
+else
+    echo "[startup] WARN: venv não encontrado em $VENV_PATH. Tentando fallback /tmp."
+    VENV_ACT="$(ls -td /tmp/*/antenv/bin/activate 2>/dev/null | head -n 1 || true)"
+    if [ -n "$VENV_ACT" ]; then
+        source "$VENV_ACT"
+    fi
+fi
 
-# 5. Execução com Flags de Robustez
-# --preload: Carrega a app antes de fazer o fork dos workers (detecta erros de importação na hora)
-# --forwarded-allow-ips: Importante para pegar o IP real do cliente atrás do balanceador do Azure
+# 5. TRAVA DE SEGURANÇA: Garante uvicorn e gunicorn no ambiente atual
+echo "[startup] Validando dependências críticas..."
+python -m pip install --upgrade pip
+python -m pip install uvicorn[standard]==0.30.3 gunicorn==22.0.0
+
+# 6. Execução do Gunicorn
+echo "[startup] Iniciando Gunicorn na porta $PORT..."
+
+# Reativa o set -e para segurança na execução
+set -e
+
 exec gunicorn \
     --worker-class "uvicorn.workers.UvicornWorker" \
     --bind "0.0.0.0:${PORT}" \

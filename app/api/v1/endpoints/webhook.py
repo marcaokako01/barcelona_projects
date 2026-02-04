@@ -1,7 +1,8 @@
 # app/api/v1/endpoints/webhook.py
 from fastapi import APIRouter, BackgroundTasks, Request
+from fastapi.responses import StreamingResponse
 from app.services.orchestrator import ConversationOrchestrator
-# Importação protegida: Se o banco não existir, não quebra o código
+
 try:
     from app.services.database.storage import LeadsRepository
 except ImportError:
@@ -10,127 +11,95 @@ except ImportError:
 import time
 import logging
 import uuid
+import json
 
-# Configuração de Logs
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 def save_lead_background(phone: str, message: str, response: str):
-    """
-    Função BLINDADA para salvar dados.
-    Se o banco falhar, ela morre silenciosamente sem derrubar a API.
-    """
     try:
-        # Verifica se o repositório foi importado corretamente
-        if LeadsRepository is None:
-            logger.warning("⚠️ LeadsRepository não encontrado. Pulando salvamento.")
-            return
-
-        if not phone or phone == "unknown":
-            return
-
-        # Tenta conectar e salvar
-        print(f"💾 Tentando salvar lead: {phone}...")
-        repo = LeadsRepository()
-        
-        repo.save_lead(
-            phone=phone,
-            name="Lead Vapi",
-            status="Em Atendimento",
-            summary=f"User: {message[:50]}... | IA: {response[:50]}..."
-        )
-        print("✅ Lead salvo com sucesso!")
-
+        if LeadsRepository:
+            repo = LeadsRepository()
+            # Enviando os 4 campos exigidos pelo storage.py
+            repo.save_lead(
+                phone=phone, 
+                name="Cliente Vapi", 
+                status="Atendido", 
+                summary=f"Pergunta: {message} | Resposta: {response}"
+            )
+            logger.info(f"Lead {phone} enviado para o Azure Table Storage.")
     except Exception as e:
-        # Se der erro aqui, APENAS loga. Não deixa subir erro pra API.
-        logger.error(f"⚠️ Erro SILENCIOSO no banco de dados (Ignorado): {e}")
+        logger.error(f"Erro ao salvar lead: {str(e)}")
 
+def _sse(obj: dict) -> str:
+    return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
-@router.post("/vapi/chat/completions")
+async def _safe_json(request: Request) -> dict:
+    raw = await request.body()
+    if not raw: return {}
+    return await request.json()
+
+@router.post("/vapi")
 async def vapi_webhook(request: Request, background_tasks: BackgroundTasks):
-    """
-    Endpoint compatível com Vapi Custom LLM.
-    Agora com resposta de erro 100% compatível com a Vapi.
-    """
-    # Prepara IDs para garantir resposta válida mesmo no erro
-    request_id = f"chatcmpl-{uuid.uuid4()}"
+    request_id = str(uuid.uuid4())
     timestamp = int(time.time())
-
+    
     try:
-        payload = await request.json()
-        
-        # 1. Extração de Dados (Com proteção extra)
+        payload = await _safe_json(request)
         messages = payload.get("messages", [])
-        user_message = ""
-        # Pega a última mensagem válida do usuário
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                user_message = msg.get("content", "")
-                break
-        
-        call_data = payload.get("call", {})
-        call_id = call_data.get("id", "unknown")
-        
-        customer_phone = "unknown"
-        if "customer" in call_data and "number" in call_data["customer"]:
-            customer_phone = call_data["customer"]["number"]
-            
-        logger.info(f"📞 Chamada {call_id} | Tel: {customer_phone} | Msg: {user_message}")
+        user_message = messages[-1].get("content", "") if messages else ""
+        call_id = payload.get("call", {}).get("id", "no-id")
+        customer_phone = payload.get("customer", {}).get("number", "desconhecido")
+        history = messages[:-1] if len(messages) > 1 else []
 
-        # 2. Proteção contra silêncio
-        if not user_message:
-            ai_response = "Olá, aqui é da Barcelona Partners. Com quem eu falo?"
-        else:
-            # 3. O Cérebro Trabalha
-            orchestrator = ConversationOrchestrator()
-            ai_response = await orchestrator.get_response(user_message, call_id)
+        orchestrator = ConversationOrchestrator()
 
-        # 4. Salva no Banco (Sem risco de travar)
-        background_tasks.add_task(
-            save_lead_background, 
-            phone=customer_phone, 
-            message=user_message, 
-            response=ai_response
-        )
+        async def event_gen():
+            ai_response = ""
+            try:
+                # O orquestrador agora pode retornar texto ou dicionário de ferramentas
+                async for chunk in await orchestrator.get_response(user_message, call_id, history):
+                    if not chunk: continue
+                    
+                    delta = {}
+                    # SE FOR CHAMADA DE FERRAMENTA (TOOL CALL)
+                    if isinstance(chunk, dict) and "tool_calls" in chunk:
+                        delta = {"tool_calls": chunk["tool_calls"]}
+                    # SE FOR TEXTO NORMAL
+                    else:
+                        ai_response += str(chunk)
+                        delta = {"role": "assistant", "content": str(chunk)}
 
-        # 5. Resposta OFICIAL (Sucesso)
-        return {
-            "id": request_id,
-            "object": "chat.completion",
-            "created": timestamp,
-            "model": "gpt-4o",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": ai_response
-                    },
-                    "finish_reason": "stop"
-                }
-            ]
-        }
-        
+                    yield _sse({
+                        "id": request_id,
+                        "object": "chat.completion.chunk",
+                        "created": timestamp,
+                        "model": "gpt-4o",
+                        "choices": [{
+                            "index": 0,
+                            "delta": delta,
+                            "finish_reason": None,
+                        }],
+                    })
+
+                yield _sse({
+                    "id": request_id,
+                    "object": "chat.completion.chunk",
+                    "created": timestamp,
+                    "model": "gpt-4o",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                })
+
+                background_tasks.add_task(save_lead_background, customer_phone, user_message, ai_response)
+
+            except Exception as e:
+                logger.error(f"Erro no fluxo de eventos: {str(e)}")
+                yield _sse({"id": request_id, "object": "chat.completion.chunk", "choices": [{"index": 0, "delta": {"content": "Erro técnico."}, "finish_reason": "stop"}]})
+
+        return StreamingResponse(event_gen(), media_type="text/event-stream")
+
     except Exception as e:
-        logger.error(f"❌ ERRO CRÍTICO NO WEBHOOK: {str(e)}")
-        
-        # 🚨 FALLBACK DE EMERGÊNCIA (CORRIGIDO) 🚨
-        # Agora devolvemos um JSON completo. Antes faltavam campos e a Vapi dava 500.
-        return {
-            "id": request_id,  # Essencial
-            "object": "chat.completion", # Essencial
-            "created": timestamp, # Essencial
-            "model": "gpt-4o",
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": "Desculpe, a ligação cortou um pouquinho. Poderia repetir?"
-                    },
-                    "finish_reason": "stop"
-                }
-            ]
-        }
+        logger.error(f"Erro crítico no webhook: {str(e)}")
+        return {"detail": "Internal Server Error"}

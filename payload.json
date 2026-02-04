@@ -1,0 +1,7 @@
+﻿{
+  "model": "gpt-4o",
+  "temperature": 0.2,
+  "messages": [
+    { "role": "user", "content": "Oi, quero informações." }
+  ]
+}

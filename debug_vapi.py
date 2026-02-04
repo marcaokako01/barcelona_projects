@@ -1,7 +1,8 @@
 import requests
 
 # URL do servidor que você acabou de ligar
-URL = "http://127.0.0.1:8000/chat/completions"
+URL = "https://barcelona-ai-vapi-web-ecfndtbxhce6h2hu.canadacentral-01.azurewebsites.net/api/v1/webhook/vapi/chat/completions"
+
 
 # Payload idêntico ao que a Vapi envia
 data = {
