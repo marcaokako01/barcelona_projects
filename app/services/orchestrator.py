@@ -1,5 +1,5 @@
 from app.services.llm.engine import LLMEngine
-from typing import List, Dict, Optional, AsyncIterable, Union
+from typing import List, Dict, Optional
 from langchain_core.messages import HumanMessage, AIMessage
 import logging
 
@@ -9,37 +9,35 @@ class ConversationOrchestrator:
     def __init__(self):
         self.llm_engine = LLMEngine()
 
-    async def get_response(self, message: str, call_id: str, history: Optional[List] = None) -> AsyncIterable[Union[str, Dict]]:
+    async def get_response(self, message: str, call_id: str, history: Optional[List] = None) -> str:
         formatted_history = []
         
         if history:
             for m in history:
-                if not m: continue
+                # BLINDAGEM CIRÚRGICA: Trata m como objeto ou dicionário com segurança
+                if m is None: continue
+                
                 try:
+                    # Tenta converter para dicionário se for um objeto Pydantic
                     m_dict = m if isinstance(m, dict) else (m.model_dump() if hasattr(m, 'model_dump') else vars(m))
-                    role = m_dict.get("role")
-                    content = m_dict.get("content") or ""
                     
-                    if role == "user":
-                        formatted_history.append(HumanMessage(content=str(content)))
-                    elif role in ["assistant", "ai"]:
-                        formatted_history.append(AIMessage(content=str(content)))
+                    role = m_dict.get("role")
+                    #content = m_dict.get("content") or ""
+                    # No orchestrator.py, mude para:
+                    content = m.get("content") if isinstance(m, dict) else getattr(m, 'content', "")
+                    if role and str(content).strip():
+                        if role == "user":
+                            formatted_history.append(HumanMessage(content=str(content)))
+                        elif role in ["assistant", "ai"]:
+                            formatted_history.append(AIMessage(content=str(content)))
                 except Exception as e:
-                    logger.warning(f"Erro no histórico: {e}")
+                    logger.warning(f"Ignorando mensagem malformada no histórico: {e}")
                     continue
 
         try:
-            # Capturamos o stream completo (incluindo metadados de ferramentas)
-            async for chunk in self.llm_engine.generate_reply(message, history=formatted_history, stream=True):
-                # Se o chunk tiver tool_calls (específico para LangChain/OpenAI)
-                if hasattr(chunk, 'additional_kwargs') and chunk.additional_kwargs.get("tool_calls"):
-                    yield {"tool_calls": chunk.additional_kwargs["tool_calls"]}
-                
-                # Envia o conteúdo de texto normalmente
-                content = chunk if isinstance(chunk, str) else getattr(chunk, 'content', "")
-                if content:
-                    yield str(content)
-                    
+            # Chama a engine com o histórico limpo e formatado
+            response = await self.llm_engine.generate_reply(message, history=formatted_history)
+            return str(response).strip()
         except Exception as e:
-            logger.error(f"Erro na Engine: {str(e)}")
-            yield "Tive um problema técnico. Pode repetir?"
+            logger.error(f"Erro fatal na Engine: {str(e)}")
+            return "Desculpe, pode repetir por favor?"
