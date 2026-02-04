@@ -13,7 +13,7 @@ class LLMEngine:
     def __init__(self):
         self.llm = ChatOpenAI(
             api_key=settings.OPENAI_API_KEY.get_secret_value() if hasattr(settings.OPENAI_API_KEY, 'get_secret_value') else settings.OPENAI_API_KEY,
-            model="gpt-4o-mini",
+            model="gpt-4o",
             temperature=0.0
         )
         

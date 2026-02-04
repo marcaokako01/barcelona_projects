@@ -10,26 +10,34 @@ from langchain_openai import OpenAIEmbeddings
 from app.core.config import settings
 
 @tool
-def api_request_tool(nome: str, data_hora: str, telefone: str, resumo: str = "Agendamento"):
+@tool
+def api_request_tool(nome: str, data_hora: str, telefone: str, resumo: str, classificacao: str):
     """
     Use esta ferramenta IMEDIATAMENTE quando o cliente concordar com uma data e hora para agendar.
     Ela envia os dados para o sistema de CRM/Agenda.
+    
+    Args:
+        nome: Nome do cliente.
+        data_hora: Data e hora do agendamento.
+        telefone: Telefone confirmado.
+        resumo: Breve resumo da necessidade dele.
+        classificacao: Classificação do Lead ("Quente", "Morno" ou "Frio") baseado na análise de sentimento.
     """
-    # URL DO SEU N8N (Já corrigida para produção, sem o -test)
+    # URL DO SEU N8N
     webhook_url = "https://tina.barcelonapartnersinvest.com.br/webhook/agendamento-tina"
     
     payload = {
         "nome": nome,
         "data_hora": data_hora,
         "telefone": telefone,
-        "resumo": resumo
+        "resumo": resumo,
+        "classificacao": classificacao  # <--- CAMPO NOVO AQUI
     }
     
     try:
-        # O próprio servidor Azure faz o disparo para o n8n
         response = requests.post(webhook_url, json=payload, timeout=5)
         if response.status_code == 200:
-            return "SUCESSO: O agendamento foi enviado para o sistema. Confirme para o cliente."
+            return "SUCESSO: O agendamento foi enviado. Confirme verbalmente para o cliente."
         else:
             return f"ERRO: O sistema retornou código {response.status_code}."
     except Exception as e:
