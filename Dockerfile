@@ -1,5 +1,5 @@
 # Usa uma imagem leve e estável do Python
-FROM python:3.11-slim
+FROM python:3.11
 
 # Define o diretório de trabalho dentro do container
 WORKDIR /home/site/wwwroot

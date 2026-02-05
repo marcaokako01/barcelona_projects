@@ -1,15 +1,16 @@
-# app/services/llm/tools.py
+# --- VERSAO FINAL CORRIGIDA DO MARCAO - FORCANDO UPDATE ---
 try:
     from langchain_pinecone import PineconeVectorStore
 except ImportError:
     from langchain_pinecone import Pinecone as PineconeVectorStore
 
 import requests
-from langchain.tools import tool
+import json
+# MUDANÇA AQUI: Usar langchain_core para evitar conflitos de versão
+from langchain_core.tools import tool 
 from langchain_openai import OpenAIEmbeddings
 from app.core.config import settings
 
-@tool
 @tool
 def api_request_tool(nome: str, data_hora: str, telefone: str, resumo: str, classificacao: str):
     """
