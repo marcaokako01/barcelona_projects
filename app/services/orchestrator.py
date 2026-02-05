@@ -9,6 +9,24 @@ class ConversationOrchestrator:
     def __init__(self):
         self.llm_engine = LLMEngine()
 
+    # --- NOVO MÉTODO PARA WHATSAPP (TEXTO) ---
+    async def process_text_message(self, message: str, phone: str) -> str:
+        """
+        Processa mensagens de texto simples (WhatsApp/Telegram).
+        """
+        logger.info(f"💬 Processando texto para {phone}: {message}")
+        try:
+            # Por enquanto sem histórico (stateless), ou você pode injetar histórico aqui se quiser
+            formatted_history = [] 
+            
+            # Chama a mesma inteligência da Tina
+            response = await self.llm_engine.generate_reply(message, history=formatted_history)
+            return str(response).strip()
+        except Exception as e:
+            logger.error(f"❌ Erro no processamento de texto: {str(e)}")
+            return "Desculpe, estou com uma instabilidade técnica momentânea. Tente novamente em instantes."
+
+    # --- MÉTODO ORIGINAL DA VAPI (MANTIDO INTACTO) ---
     async def get_response(self, message: str, call_id: str, history: Optional[List] = None) -> str:
         formatted_history = []
         
