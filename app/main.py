@@ -44,19 +44,21 @@ def debug_version():
 # --- NOVA ROTA: WHATSAPP / TEXTO ---
 @app.post("/api/v1/chat/whatsapp")
 async def chat_whatsapp(data: WhatsAppRequest):
-    """
-    Endpoint exclusivo para texto (WhatsApp via n8n).
-    """
     if not ConversationOrchestrator:
-        raise HTTPException(status_code=500, detail="Erro interno: Orquestrador não carregado.")
+        raise HTTPException(status_code=500, detail="Orquestrador off")
     
     try:
         orchestrator = ConversationOrchestrator()
-        # Chama a função nova que criamos no orchestrator.py
-        resposta = await orchestrator.process_text_message(data.message, data.phone)
-        return {"response": resposta}
+        # Agora retorna um dicionário (texto + ação)
+        resultado = await orchestrator.process_text_message(data.message, data.phone)
+        
+        # O n8n vai receber isso:
+        return {
+            "response": resultado["response_text"], # Texto para ler
+            "action": resultado["action"]           # Dados para Agendar (pode ser null)
+        }
     except Exception as e:
-        logger.error(f"Erro no endpoint WhatsApp: {e}")
+        logger.error(f"Erro: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # REGISTRO DAS ROTAS

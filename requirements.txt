@@ -4,13 +4,24 @@ gunicorn==22.0.0
 pydantic==2.8.2
 pydantic-settings==2.3.4
 python-dotenv==1.0.1
-openai==1.37.1
+openai==1.40.6
 requests==2.32.3
+
+# Core LangChain (Família 0.2.x)
 langchain==0.2.11
 langchain-openai==0.1.19
 langchain-community==0.2.10
 langchain-core==0.2.24
-langchain-pinecone==0.1.1
-pinecone-client>=3.2.2,<4.0.0
+langchain-pinecone==0.1.3
+langchain-text-splitters==0.2.2
+
+# Conexão Azure (O que estava faltando!)
+azure-storage-blob==12.19.0
+
+# Pinecone e PDF
+pinecone-client==5.0.1
 pypdf==4.3.1
+pymupdf==1.24.9
+
 httpx==0.27.0
+psycopg2-binary==2.9.9
