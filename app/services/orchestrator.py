@@ -8,6 +8,7 @@ from typing import List, Optional
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from app.services.llm.engine import LLMEngine
 from app.services.llm.prompts import SYSTEM_PROMPT
+from decimal import Decimal, InvalidOperation
 
 logger = logging.getLogger(__name__)
 load_dotenv(override=True)
@@ -18,17 +19,80 @@ def get_db_connection():
     return psycopg2.connect(DATABASE_URL)
 
 def extract_name_from_history(history: List) -> Optional[str]:
-    patterns = [r"(?:meu nome é|me chamo|sou o|sou a)\s+([A-Z][a-z]+)", r"^([A-Z][a-z]+)$"]
+    # Regex melhorada: Aceita letras (a-z, A-Z) E caracteres acentuados (\w inclui Unicode em Python 3)
+    # Também aceita nomes compostos simples (ex: "Ana Clara")
+    
+    # Padrão 1: Frases de apresentação ("me chamo...", "sou o...")
+    pattern_intro = r"(?:meu nome é|me chamo|sou o|sou a|aqui é o|aqui é a)\s+([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)"
+    
+    # Padrão 2: Nome solto (apenas se a mensagem for curta, ex: "Marcão")
+    pattern_short = r"^([A-ZÀ-Ú][a-zà-ú]+(?:\s+[A-ZÀ-Ú][a-zà-ú]+)?)$"
+    
     for msg in reversed(history):
         if isinstance(msg, HumanMessage):
-            for pattern in patterns:
-                match = re.search(pattern, msg.content, re.IGNORECASE)
-                if match: return match.group(1)
+            content = msg.content.strip()
+            
+            # Tenta encontrar na frase de apresentação
+            match = re.search(pattern_intro, content, re.IGNORECASE)
+            if match: 
+                return match.group(1)
+            
+            # Se a mensagem for curta (até 3 palavras), assume que é só o nome
+            # Ex: Usuário digita apenas "Marcão"
+            if len(content.split()) <= 3:
+                match_short = re.search(pattern_short, content, re.IGNORECASE)
+                if match_short:
+                    return match_short.group(1)
+                    
     return None
 
-def upsert_lead(nome, telefone, canal, tipo_interesse, has_liquidity, temperatura, credito=0.0, obs=None):
-    """Grava o lead no banco de dados respeitando a estrutura do Power BI."""
+# --- FUNÇÃO DE ELITE PARA NORMALIZAÇÃO ---
+def parse_num_brl(valor) -> Decimal:
+    """
+    Converte entradas bagunçadas em Decimal puro para o Postgres.
+    """
+    if valor is None:
+        return Decimal("0")
+
+    if isinstance(valor, (int, float, Decimal)):
+        return Decimal(str(valor))
+
+    s = str(valor).strip().lower()
+
+    # Detecta multiplicadores (milhão/mil)
+    mult = Decimal("1")
+    if "milhão" in s or "milhões" in s or "mi" in s:
+        mult = Decimal("1000000")
+    elif "mil" in s:
+        mult = Decimal("1000")
+
+    # Remove tudo que não é número, ponto ou vírgula
+    s = re.sub(r"[^\d,\.]", "", s)
+
+    if not s:
+        return Decimal("0")
+
+    # Lógica BR: Se tem vírgula, o ponto é milhar e deve sumir
+    if "," in s:
+        s = s.replace(".", "").replace(",", ".")
+    else:
+        # Se não tem vírgula, os pontos existentes são milhar (ex: 1.500.000)
+        s = s.replace(".", "")
+
     try:
+        # Retorna o valor limpo multiplicado (ex: 1.5 * 1.000.000)
+        return Decimal(s) * mult
+    except InvalidOperation:
+        return Decimal("0")
+
+def upsert_lead(nome, telefone, canal, tipo_interesse, has_liquidity, temperatura, credito=0.0, obs=None):
+    """Grava o lead no banco de dados com precisão Decimal."""
+    try:
+        # APLICA A SUA NOVA LOGICA
+        credito_limpo = parse_num_brl(credito)
+        # Opcional: Garante 2 casas decimais para o NUMERIC(15,2)
+        credito_limpo = credito_limpo.quantize(Decimal("0.01"))
+
         with get_db_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute("""
@@ -42,10 +106,12 @@ def upsert_lead(nome, telefone, canal, tipo_interesse, has_liquidity, temperatur
                         tipo_interesse = COALESCE(EXCLUDED.tipo_interesse, leads.tipo_interesse),
                         has_liquidity = EXCLUDED.has_liquidity,
                         temperatura_lead = EXCLUDED.temperatura_lead,
-                        credito_desejado = COALESCE(EXCLUDED.credito_desejado, leads.credito_desejado),
+                        credito_desejado = EXCLUDED.credito_desejado,
+                        observacoes = COALESCE(EXCLUDED.observacoes, leads.observacoes),
                         updated_at = CURRENT_TIMESTAMP;
-                """, (nome, telefone, canal, tipo_interesse, has_liquidity, temperatura, credito, obs))
+                """, (nome, telefone, canal, tipo_interesse, has_liquidity, temperatura, credito_limpo, obs))
             conn.commit()
+        logger.info(f"✅ SUCESSO ABSOLUTO: Lead {nome} gravado como Decimal: {credito_limpo}")
     except Exception as e:
         logger.error(f"❌ Erro ao salvar lead: {e}")
 
@@ -75,22 +141,38 @@ class Orchestrator:
             history = get_history(phone)
             from app.services.llm.prompts import SYSTEM_PROMPT
             
-            # 1. Captura Valor do Crédito (Regex Refinado)
-            # Busca padrões como "1.5 milhão", "500 mil" ou "200.000"
-            credito_match = re.search(r"(\d+(?:[\.,]\d+)?)\s*(milhão|milhões|mil)?", text.lower())
+            # 1. Captura Valor do Crédito (Lógica Blindada)
+            credito_match = re.search(r"(\d+(?:[\.,]\d+)?)\s*(milhão|milhões|mil|mi)?", text.lower())
             credito_val = 0.0
+
             if credito_match:
                 try:
-                    # Normaliza o número (remove pontos de milhar e troca vírgula por ponto)
-                    num_str = credito_match.group(1).replace('.', '').replace(',', '.')
-                    valor = float(num_str)
+                    raw_num = credito_match.group(1)
+                    # LIMPEZA TOTAL: Troca vírgula por ponto e remove qualquer ponto que não seja o decimal
+                    if "," in raw_num and "." in raw_num:
+                        # Caso 1.500,00 -> vira 1500.00
+                        num_clean = raw_num.replace(".", "").replace(",", ".")
+                    elif "," in raw_num:
+                        # Caso 1,5 -> vira 1.5
+                        num_clean = raw_num.replace(",", ".")
+                    else:
+                        num_clean = raw_num
+                        
+                    valor = float(num_clean)
                     
-                    # Aplica multiplicador
-                    suffix = (credito_match.group(2) or '').lower()
-                    mult = 1000000 if 'milhão' in suffix or 'milhões' in suffix else (1000 if 'mil' in suffix else 1)
+                    # Multiplicador
+                    sufixo = (credito_match.group(2) or "").lower()
+                    if "milhão" in sufixo or "milhões" in sufixo or sufixo == "mi":
+                        mult = 1000000
+                    elif "mil" in sufixo:
+                        mult = 1000
+                    else:
+                        mult = 1
+                        
                     credito_val = valor * mult
+                    # O pulo do gato: credito_val agora é um FLOAT PURO (ex: 1500000.0)
                 except Exception as e:
-                    logger.warning(f"⚠️ Falha ao converter crédito: {e}")
+                    logger.warning(f"⚠️ Falha na conversão de crédito: {e}")
 
             # 2. Chama a IA com o histórico e instruções
             messages = [SystemMessage(content=SYSTEM_PROMPT)] + history + [HumanMessage(content=text)]
