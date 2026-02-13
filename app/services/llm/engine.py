@@ -53,6 +53,10 @@ class LLMEngine:
                 "input": message,
                 "chat_history": chat_history
             })
-            return str(result.get("output", "")).strip()
+            # No engine.py, mude o final do generate_reply para:
+            return {
+                "output": result.get("output", ""),
+                "action": result.get("action") # Ou onde quer que o seu agente guarde a ação
+            }
         except Exception as e:
             return "Desculpe, tive um problema técnico. Pode repetir?"

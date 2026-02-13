@@ -175,13 +175,19 @@ class ConversationOrchestrator:
             messages_to_send = [system_instruction] + history + [HumanMessage(content=text)]
 
             # 4. Chama a IA
-            response = await self.llm_engine.generate_reply(text, history=messages_to_send)
-            raw_content = str(response).strip()
+            # AJUSTE NECESSÁRIO:
+            llm_result = await self.llm_engine.generate_reply(text, history=messages_to_send)
             
-            # 5. Inteligência de Lead (Nome, Intenção, Upsert)
+            # Se o engine retornar um dicionário, pegamos o 'output'. Se for string, usamos direto.
+            if isinstance(llm_result, dict):
+                raw_content = llm_result.get("output", "").strip()
+            else:
+                raw_content = str(llm_result).strip()
+
             clean_text = raw_content
             action_data = None
             
+                      
             # Tenta extrair nome do histórico acumulado
             nome_detectado = extract_name_from_history(history + [HumanMessage(content=text)])
             

@@ -90,6 +90,8 @@ PRICING_LOGIC = """
 - **Exemplo de Fala**: "Para o seu projeto de 1.5 milhão, nós estruturamos uma composição. Usando como base nossa cota de 700 mil (onde a parcela é R$ [VALOR]), faremos o proporcional para atingir seu objetivo com o menor custo possível."
 """
 
+# No seu arquivo prompts.py, mude o final para:
+
 CLOSING_TECHNIQUE = """
 ### FLUXO DE AGENDAMENTO (OBRIGATÓRIO):
 1. Antes de realizar o agendamento, verifique se você já sabe o NOME do cliente.
@@ -97,13 +99,11 @@ CLOSING_TECHNIQUE = """
 3. Se você já souber o NOME, NÃO peça mais nada. Gere o agendamento IMEDIATAMENTE.
 4. NUNCA peça o telefone. Você já possui essa informação tecnicamente.
 
-### REGRA TÉCNICA DE SAÍDA:
-Ao confirmar o agendamento no texto, você DEVE obrigatoriamente preencher o objeto 'action' (que atualmente está null) com os seguintes dados:
-- "data": A data/hora combinada em formato ISO (Ex: 2026-02-14T15:00:00).
-- "nome": O nome do cliente.
-- "telefone": O telefone do cliente.
+### REGRA TÉCNICA DE SAÍDA (CRÍTICO):
+Ao confirmar o agendamento no texto, você DEVE obrigatoriamente incluir no FINAL da sua resposta o código abaixo, preenchendo os dados:
+||AGENDAR|DATA_ISO|NOME_CLIENTE||
 
-Se não houver um agendamento sendo concluído nesta mensagem, mantenha 'action': null.
+Exemplo: "Perfeito! Marcado para amanhã às 15h. ||AGENDAR|2026-02-14T15:00:00|Marcao||"
 """
 
 SYSTEM_PROMPT = f"{BASE_IDENTITY}\n\n{NICHE_ARGUMENTS}\n\n{OBJECTION_HANDLING}\n\n{SALES_STRATEGY}\n\n{LEAD_SCORING}\n\n{KNOWLEDGE_POLICY}\n\n{PRICING_LOGIC}\n\n{FINANCIAL_TRANSPARENCY}\n\n{ADHESION_POLICY}\n\n{CLOSING_TECHNIQUE}"
