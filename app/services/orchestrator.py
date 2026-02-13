@@ -9,6 +9,8 @@ from typing import List, Optional, Dict
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from app.services.llm.engine import LLMEngine
 from app.services.llm.prompts import SYSTEM_PROMPT
+from datetime import datetime
+import pytz # Certifique-se de que pytz está no seu requirements.txt
 
 logger = logging.getLogger(__name__)
 load_dotenv(override=True)
@@ -156,8 +158,9 @@ class ConversationOrchestrator:
 
     async def process_text_message(self, text: str, phone: str, channel: str = "whatsapp") -> dict:
         """
-        Processa mensagens de texto (WhatsApp) com toda a inteligência de banco de dados.
+        Processa mensagens de texto (WhatsApp) com fuso horário corrigido.
         """
+        import pytz # Importação necessária para o fuso horário
         logger.info(f"💬 {channel} de {phone}: {text}")
         
         try:
@@ -169,16 +172,24 @@ class ConversationOrchestrator:
             if any(k in text.lower() for k in ["mil", "mi", "00"]):
                 credito_val = parse_num_brl(text)
 
-            # 3. Monta contexto para a IA
-            hoje = datetime.now().strftime("%d/%m/%Y")
-            system_instruction = SystemMessage(content=f"{SYSTEM_PROMPT}\nHoje é {hoje}.")
+            # --- AJUSTE DE HORA E FUSO HORÁRIO AQUI ---
+            fuso_sp = pytz.timezone('America/Sao_Paulo')
+            agora_sp = datetime.now(fuso_sp)
+            hoje = agora_sp.strftime("%d/%m/%Y")
+            hora_atual = agora_sp.strftime("%H:%M")
+            dia_semana = agora_sp.strftime("%A") # Ajuda a IA a saber que dia da semana é hoje
+
+            # 3. Monta contexto para a IA com data e hora explícitas
+            system_instruction = SystemMessage(
+                content=f"{SYSTEM_PROMPT}\n\nCONTEXTO TEMPORAL CRÍTICO:\nHoje é {hoje} ({dia_semana}) e agora são {hora_atual} (Horário de Brasília)."
+            )
+            # ------------------------------------------
+
             messages_to_send = [system_instruction] + history + [HumanMessage(content=text)]
 
             # 4. Chama a IA
-            # AJUSTE NECESSÁRIO:
             llm_result = await self.llm_engine.generate_reply(text, history=messages_to_send)
             
-            # Se o engine retornar um dicionário, pegamos o 'output'. Se for string, usamos direto.
             if isinstance(llm_result, dict):
                 raw_content = llm_result.get("output", "").strip()
             else:
@@ -187,7 +198,6 @@ class ConversationOrchestrator:
             clean_text = raw_content
             action_data = None
             
-                      
             # Tenta extrair nome do histórico acumulado
             nome_detectado = extract_name_from_history(history + [HumanMessage(content=text)])
             
