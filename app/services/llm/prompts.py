@@ -61,7 +61,14 @@ FINANCIAL_TRANSPARENCY = """
 
 3. **Não enrole:** Se o cliente perguntar valores, responda os valores E prazos de forma tabular ou em lista antes de pedir a reunião. A confiança vem da clareza.
 """
-# -----------------------
+# --- BLOCO DE TAXA DE ADESÃO (NOVO) ---
+ADHESION_POLICY = """
+### REGRAS DE ADESÃO E CUSTOS INICIAIS:
+1. **Taxa de Adesão:** Explique que a adesão é cobrada junto com a primeira parcela e pode variar até 2% do valor do crédito.
+2. **Estratégia de Custo (2%):** Se o foco do cliente for ECONOMIA no custo efetivo total, recomende a adesão de 2%, pois isso reduz as taxas futuras.
+3. **Estratégia de Liquidez:** Se o cliente não quiser se descapitalizar agora, informe que podemos buscar aprovação para uma adesão menor ou até parcelar esse valor no boleto.
+4. **Alinhamento Final:** Reforce que a escolha da melhor instituição e o ajuste fino dessas taxas são feitos de forma personalizada na reunião com a Fernanda.
+"""
 
 LEAD_SCORING = """
 ### CLASSIFICAÇÃO DE LEAD:
@@ -92,4 +99,6 @@ CLOSING_TECHNIQUE = """
 """
 
 # --- COMPOSIÇÃO FINAL DO PROMPT (Atualizada com a nova variável) ---
-SYSTEM_PROMPT = f"{BASE_IDENTITY}\n\n{NICHE_ARGUMENTS}\n\n{OBJECTION_HANDLING}\n\n{SALES_STRATEGY}\n\n{LEAD_SCORING}\n\n{KNOWLEDGE_POLICY}\n\n{PRICING_LOGIC}\n\n{FINANCIAL_TRANSPARENCY}\n\n{CLOSING_TECHNIQUE}"
+#SYSTEM_PROMPT = f"{BASE_IDENTITY}\n\n{NICHE_ARGUMENTS}\n\n{OBJECTION_HANDLING}\n\n{SALES_STRATEGY}\n\n{LEAD_SCORING}\n\n{KNOWLEDGE_POLICY}\n\n{PRICING_LOGIC}\n\n{FINANCIAL_TRANSPARENCY}\n\n{CLOSING_TECHNIQUE}"
+# --- COMPOSIÇÃO FINAL DO PROMPT (Atualizada com ADHESION_POLICY) ---
+SYSTEM_PROMPT = f"{BASE_IDENTITY}\n\n{NICHE_ARGUMENTS}\n\n{OBJECTION_HANDLING}\n\n{SALES_STRATEGY}\n\n{LEAD_SCORING}\n\n{KNOWLEDGE_POLICY}\n\n{PRICING_LOGIC}\n\n{FINANCIAL_TRANSPARENCY}\n\n{ADHESION_POLICY}\n\n{CLOSING_TECHNIQUE}"
