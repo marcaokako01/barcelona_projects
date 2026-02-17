@@ -99,7 +99,8 @@ def api_request_tool(nome: str, data_hora: str, telefone: str, resumo: str, clas
     webhook_url = "https://tina.barcelonapartnersinvest.com.br/webhook/agendamento-tina"
     payload = {"nome": nome, "data_hora": data_hora, "telefone": telefone, "resumo": resumo, "classificacao": classificacao}
     try:
-        response = requests.post(webhook_url, json=payload, timeout=5)
+        # Aumentado timeout de 5 para 15 para evitar duplicidade na agenda
+        response = requests.post(webhook_url, json=payload, timeout=15) 
         return "SUCESSO: Agendado!" if response.status_code == 200 else "ERRO no sistema."
     except Exception as e: return f"ERRO: {str(e)}"
 

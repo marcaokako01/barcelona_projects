@@ -53,10 +53,16 @@ class LLMEngine:
                 "input": message,
                 "chat_history": chat_history
             })
-            # No engine.py, mude o final do generate_reply para:
+            
+            # Captura os dados da action (agendamento) se eles existirem
+            action_data = result.get("action", {})
+            
             return {
                 "output": result.get("output", ""),
-                "action": result.get("action") # Ou onde quer que o seu agente guarde a ação
+                "nome": action_data.get("nome", "Cliente"),
+                "classificacao": action_data.get("classificacao", "⚡ MORNO"),
+                "resumo": action_data.get("resumo", "Interesse geral"),
+                "action": action_data
             }
         except Exception as e:
             return "Desculpe, tive um problema técnico. Pode repetir?"
