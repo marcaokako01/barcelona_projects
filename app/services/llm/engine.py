@@ -46,7 +46,7 @@ class LLMEngine:
             handle_parsing_errors=True
         )
 
-    async def generate_reply(self, message: str, history: list = None) -> str:
+    async def generate_reply(self, message: str, history: list = None) -> dict:
         try:
             chat_history = history if history is not None else []
             result = await self.agent_executor.ainvoke({
@@ -54,15 +54,47 @@ class LLMEngine:
                 "chat_history": chat_history
             })
             
-            # Captura os dados da action (agendamento) se eles existirem
-            action_data = result.get("action", {})
+            output_text = result.get("output", "")
             
+            # --- AJUSTE CIRÚRGICO: CAPTURA DE DADOS DA FERRAMENTA ---
+            action_data = {}
+            # Se a Tina usou uma ferramenta, os dados estão em 'intermediate_steps'
+            if "intermediate_steps" in result and result["intermediate_steps"]:
+                for action, observation in result["intermediate_steps"]:
+                    if action.tool == "api_request_tool":
+                        action_data = action.tool_input  # Aqui pegamos o dicionário com nome, data, etc.
+            # -------------------------------------------------------
+
+            # 1. SEGURANÇA: Extração via código se a ferramenta falhar ou não for capturada
+            if not action_data and "||AGENDAR|" in output_text:
+                import re
+                match = re.search(r"\|\|AGENDAR\|(.*?)\|(.*?)\|\|", output_text)
+                if match:
+                    action_data = {
+                        "tipo": "agendar_visita",
+                        "data_hora": match.group(1),
+                        "nome": match.group(2)
+                    }
+
+            # 2. INTELIGÊNCIA DE LEAD (CRITÉRIO DO MARCÃO):
+            sinais_quentes = [
+                "milhao", "milhoes", "tenho o dinheiro", "a vista", 
+                "investir", "urgente", "fechar rapido", "capital", "disponivel"
+            ]
+            
+            is_hot = any(sinal in message.lower() or sinal in output_text.lower() for sinal in sinais_quentes)
+            classificacao_final = "🔥 QUENTE" if is_hot else "⚡ MORNO"
+
+            # 3. RETORNO PARA O N8N (Priorizando o nome real capturado)
+            nome_extraido = action_data.get("nome") or action_data.get("nome_cliente") or "Cliente"
+
             return {
-                "output": result.get("output", ""),
-                "nome": action_data.get("nome", "Cliente"),
-                "classificacao": action_data.get("classificacao", "⚡ MORNO"),
-                "resumo": action_data.get("resumo", "Interesse geral"),
-                "action": action_data
+                "output": output_text,
+                "action": action_data,
+                "nome": nome_extraido,
+                "classificacao": action_data.get("classificacao", classificacao_final),
+                "resumo": action_data.get("resumo", "Interesse em consórcio identificado")
             }
         except Exception as e:
-            return "Desculpe, tive um problema técnico. Pode repetir?"
+            print(f"Erro no Engine: {e}")
+            return {"output": "Poxa, tive um probleminha aqui. Pode repetir?", "action": None}
