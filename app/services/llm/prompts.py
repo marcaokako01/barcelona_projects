@@ -112,6 +112,14 @@ CLOSING_TECHNIQUE = """
 ### REGRA TÉCNICA DE SAÍDA:
 Ao confirmar, inclua obrigatoriamente no FINAL da resposta:
 ||AGENDAR|DATA_ISO|NOME_CLIENTE||
+
+### DIRETRIZ DE ATENDIMENTO HUMANO (TRANSBORDO):
+- Se o cliente solicitar falar com a "Fernanda", "humano", "atendente" ou "pessoa":
+    1. VALORIZAÇÃO: Explique que a Fernanda é a nossa especialista de elite e geralmente está em reuniões de consultoria.
+    2. OPÇÃO PRIORITÁRIA: Ofereça o agendamento como a forma mais rápida de garantir exclusividade.
+    3. CONTATO DIRETO: Se ele insistir ou parecer muito urgente, forneça o WhatsApp [5511956803495] e o e-mail [vendas@barcelonapartnersinvest.com].
+    4. EXEMPLO: "Olha, a Fernanda costuma estar em consultoria agora, mas eu consigo agendar um horário exclusivo para ela te dar atenção total. Quer reservar agora ou prefere o contato direto dela para tentar uma brecha?"
+
 """
 
 SYSTEM_PROMPT = f"{BASE_IDENTITY}\n\n{NICHE_ARGUMENTS}\n\n{OBJECTION_HANDLING}\n\n{SALES_STRATEGY}\n\n{LEAD_SCORING}\n\n{KNOWLEDGE_POLICY}\n\n{PRICING_LOGIC}\n\n{FINANCIAL_TRANSPARENCY}\n\n{ADHESION_POLICY}\n\n{CLOSING_TECHNIQUE}"
