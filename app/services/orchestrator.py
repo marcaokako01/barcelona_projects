@@ -215,7 +215,10 @@ class ConversationOrchestrator:
                 upsert_lead(nome_detectado, phone, channel, intent_found, tem_liquidez, temperatura, credito_val, text)
 
             # --- BLOCO CIRÚRGICO: AGENDAMENTO ---
-            # 1. Tenta o Regex padrão (Funciona no WhatsApp e se a Vapi enviar o texto puro)
+            # --- BLOCO CIRÚRGICO: AGENDAMENTO (Wpp + Vapi) ---
+            action_data = None
+            
+            # 1. Tenta o Regex padrão (Sua regra de ouro que funciona no WhatsApp)
             match = re.search(r"\|\|AGENDAR\|(.*?)\|(.*?)\|\|", raw_content)
             
             if match:
@@ -228,18 +231,20 @@ class ConversationOrchestrator:
                 clean_text = raw_content.replace(match.group(0), "").strip()
                 logger.info(f"🚀 Agendamento via REGEX detectado para {nome_detectado}")
             
-            # 2. CAPTURA DE SEGURANÇA (Para Vapi/Voz quando o código falha)
-            elif "reservado" in raw_content.lower() and "agenda" in raw_content.lower() and nome_detectado:
-                # Se ela confirmou na fala mas não gerou o código, tentamos salvar com os dados que já temos
+            # 2. REDE DE SEGURANÇA (Para Voz/Vapi quando ela confirma mas esquece o código)
+            elif any(x in raw_content.lower() for x in ["reservado", "agendado", "marcado"]) and nome_detectado:
+                # Se ela confirmou na fala mas o Regex falhou, forçamos o agendamento
+                # Usamos a data "Consultar histórico" pois o horário está no texto falado
                 action_data = {
                     "tipo": "agendar_visita",
-                    "data": "Consultar histórico", # A Fernanda verá no log o horário dito
+                    "data": "Verificar no áudio/texto", 
                     "nome": nome_detectado,
                     "telefone": phone
                 }
+                clean_text = raw_content
                 logger.warning(f"⚠️ Agendamento via INTENÇÃO (Voz) detectado para {nome_detectado}")
 
-            # 7. Salva conversa no Histórico (Postgres)
+            # 7. Salva conversa no Histórico (Postgres) e retorna
             save_message(phone, "user", text, channel)
             save_message(phone, "assistant", clean_text, channel)
 
@@ -247,7 +252,7 @@ class ConversationOrchestrator:
                 "response_text": clean_text,
                 "action": action_data
             }
-            
+
         except Exception as e:
             logger.error(f"❌ Erro Crítico no Orchestrator: {str(e)}")
             return {"response_text": "Tive um probleminha técnico. Pode repetir?", "action": None}
