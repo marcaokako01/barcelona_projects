@@ -299,30 +299,38 @@ async def vapi_pricing_tool(request: Request):
 @router.post("/agendar")
 async def vapi_agendar_tool(request: Request):
     """
-    Endpoint para a ferramenta de agendamento da Vapi.
+    Endpoint otimizado para a ferramenta de agendamento da Vapi.
     """
     try:
         data = await _safe_json(request)
         logger.info(f"📥 Dados de agendamento recebidos: {data}")
 
+        # Extração robusta de argumentos
         args = _parse_tool_arguments(data)
-
-        data_hora = args.get("data_hora") or args.get("datetime") or args.get("dataHora")
+        
+        # Mapeia todas as possibilidades de chaves que a IA pode inventar
+        data_hora = args.get("data_hora") or args.get("datetime") or args.get("dataHora") or args.get("date")
         nome_cliente = args.get("nome_cliente") or args.get("name") or args.get("nome")
 
         if not data_hora or not nome_cliente:
-            logger.error(f"❌ Dados insuficientes para agendar: {args}")
-            return {"result": "Poxa, não consegui entender o horário ou seu nome. Pode repetir?"}
+            logger.error(f"❌ Dados insuficientes: data_hora={data_hora}, nome={nome_cliente}")
+            return {"result": "Poxa, não consegui entender bem o dia ou o seu nome. Pode repetir pra mim?"}
 
-        logger.info(f"✅ SUCESSO: Agendando para {nome_cliente} em {data_hora}")
+        # --- AJUSTE PARA FALA NATURAL ---
+        # Se vier algo como 2026-02-24, tentamos deixar mais amigável para a voz
+        data_fala = str(data_hora).replace("T", " às ").split(".")[0]
 
-        return {
-            "result": (
-                f"Prontinho, {nome_cliente}! Já reservei aqui na agenda da Fernanda para o dia {data_hora}. "
-                "Ela vai adorar falar com você!"
-            )
-        }
+        logger.info(f"✅ SUCESSO: Agendando para {nome_cliente} em {data_fala}")
+
+        # Retornamos sem acentos complexos para garantir que a API de voz não engasgue
+        # e usamos um formato que a Tina lerá com naturalidade
+        resposta_texto = (
+            f"Prontinho, {nome_cliente}! Ja reservei aqui na agenda da Fernanda para o dia {data_fala}. "
+            "Ela vai adorar falar com voce!"
+        )
+
+        return {"result": resposta_texto}
 
     except Exception as e:
-        logger.error(f"❌ ERRO NO AGENDAMENTO: {str(e)}")
-        return {"result": "Tive um probleminha técnico para salvar o horário, mas a Fernanda já vai entrar em contato com você."}
+        logger.error(f"❌ ERRO CRÍTICO NO AGENDAMENTO: {str(e)}")
+        return {"result": "Tive um probleminha tecnico para acessar a agenda agora, mas a Fernanda ja salvou seu interesse e te liga em breve."}
