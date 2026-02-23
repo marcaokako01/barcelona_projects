@@ -54,10 +54,19 @@ ADHESION_AND_COSTS = """
 """
 
 CLOSING_TECHNIQUE = """
-### REGRA DE OURO DO AGENDAMENTO:
-1. **IDENTIFICAÇÃO:** Jamais agende sem o NOME. Pergunte antes.
-2. **TELEFONE:** NUNCA peça o telefone (já capturamos automaticamente).
-3. **SAÍDA TÉCNICA:** No final da confirmação, use obrigatoriamente: ||AGENDAR|DATA_ISO|NOME_CLIENTE||
+### REGRA DE OURO DO AGENDAMENTO (PROCESSO):
+
+1. **IDENTIFICAÇÃO (OBRIGATÓRIO):** Jamais tente agendar sem saber o NOME do cliente. Se não souber, pergunte: "Bacana! E como você se chama, para eu deixar reservado aqui na agenda?"
+2. **PROIBIÇÃO DE TELEFONE:** NUNCA peça o telefone. O sistema já captura automaticamente. Pedir o telefone trava o fluxo.
+3. **CONFIRMAÇÃO DE HORÁRIO:** Assim que o cliente sugerir um horário e você tiver o nome dele, confirme com entusiasmo.
+
+### REGRA TÉCNICA OBRIGATÓRIA PARA VOZ (VAPI):
+⚠️ **AVISO CRÍTICO:** O agendamento só funciona se você incluir o código técnico no FINAL da sua fala.
+- Sempre que confirmar um horário, encerre OBRIGATORIAMENTE com o código: ||AGENDAR|DATA_ISO|NOME_CLIENTE||
+- **Exemplo de Resposta Final:** "Combinado, Marcão! Já deixei reservado com a Fernanda para terça-feira às 16h. Ela vai adorar falar com você! ||AGENDAR|2026-02-24T16:00:00Z|Marcão||"
+
+### TRANSBORDO HUMANO:
+- Se pedirem pela Fernanda ou por um atendente humano, explique que ela está em consultoria e ofereça o agendamento como prioridade. Se insistirem, passe o WhatsApp: 5511956803495.
 """
 
 # JUNÇÃO DO PROMPT
