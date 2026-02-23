@@ -214,8 +214,10 @@ class ConversationOrchestrator:
             if nome_detectado:
                 upsert_lead(nome_detectado, phone, channel, intent_found, tem_liquidez, temperatura, credito_val, text)
 
-            # 6. Agendamento (Regex)
+            # --- BLOCO CIRÚRGICO: AGENDAMENTO ---
+            # 1. Tenta o Regex padrão (Funciona no WhatsApp e se a Vapi enviar o texto puro)
             match = re.search(r"\|\|AGENDAR\|(.*?)\|(.*?)\|\|", raw_content)
+            
             if match:
                 action_data = {
                     "tipo": "agendar_visita",
@@ -224,6 +226,18 @@ class ConversationOrchestrator:
                     "telefone": phone
                 }
                 clean_text = raw_content.replace(match.group(0), "").strip()
+                logger.info(f"🚀 Agendamento via REGEX detectado para {nome_detectado}")
+            
+            # 2. CAPTURA DE SEGURANÇA (Para Vapi/Voz quando o código falha)
+            elif "reservado" in raw_content.lower() and "agenda" in raw_content.lower() and nome_detectado:
+                # Se ela confirmou na fala mas não gerou o código, tentamos salvar com os dados que já temos
+                action_data = {
+                    "tipo": "agendar_visita",
+                    "data": "Consultar histórico", # A Fernanda verá no log o horário dito
+                    "nome": nome_detectado,
+                    "telefone": phone
+                }
+                logger.warning(f"⚠️ Agendamento via INTENÇÃO (Voz) detectado para {nome_detectado}")
 
             # 7. Salva conversa no Histórico (Postgres)
             save_message(phone, "user", text, channel)
@@ -233,7 +247,7 @@ class ConversationOrchestrator:
                 "response_text": clean_text,
                 "action": action_data
             }
-
+            
         except Exception as e:
             logger.error(f"❌ Erro Crítico no Orchestrator: {str(e)}")
             return {"response_text": "Tive um probleminha técnico. Pode repetir?", "action": None}
