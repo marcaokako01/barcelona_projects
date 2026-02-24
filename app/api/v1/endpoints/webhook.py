@@ -158,94 +158,96 @@ async def vapi_chat_completions(request: Request):
 
 @router.post("/pricing")
 async def vapi_pricing_tool(request: Request):
-    """Cálculo de parcelas com saneamento de dados para altos valores."""
+    """Cálculo de parcelas no padrão oficial Vapi."""
     try:
-        data = await _safe_json(request)
-        args = _parse_tool_arguments(data)
+        data = await request.json()
+        
+        # 1. CAPTURA O PROTOCOLO VAPI
+        message = data.get("message", {})
+        tool_calls = message.get("toolCalls", [])
+        
+        if not tool_calls:
+            return {"error": "No tool calls found"}
+        
+        call_id = tool_calls[0].get("id")
+        args = tool_calls[0].get("function", {}).get("arguments", {})
+        
         produto = args.get("produto")
         valor_raw = args.get("valor_credito_desejado") or args.get("valor")
 
         if not produto or valor_raw is None:
-            return {"result": "Poxa, não consegui entender o valor. Pode repetir?"}
+            return {"results": [{"toolCallId": call_id, "result": "Poxa, não consegui entender o valor. Pode repetir?"}]}
 
-        # 1. SANEAMENTO DE DADOS (O segredo para evitar o overflow)
-        if isinstance(valor_raw, str):
-            # Remove R$, espaços e ajusta separadores decimais
-            v = valor_raw.strip().replace("R$", "").replace(" ", "")
-            
-            # Lógica para evitar que "180.000" vire "180000000" se houver confusão de pontos
-            if "," in v and "." in v: # Formato brasileiro: 1.000,00
-                v = v.replace(".", "").replace(",", ".")
-            elif "." in v and len(v.split(".")[-1]) > 2: # Formato 180.000 (sem centavos)
-                v = v.replace(".", "")
-            elif "," in v: # Apenas vírgula
-                v = v.replace(",", ".")
-                
-            try:
-                valor_float = float(v)
-            except:
-                return {"result": "O valor parece meio confuso, pode falar de novo?"}
-        else:
-            valor_float = float(valor_raw)
-
-        # 2. LIMITE DE SEGURANÇA RAZOÁVEL
-        # Definimos 500 Milhões como teto técnico para evitar erros de sensor/overflow,
-        # mas que permite negociar barcos, aviões e fazendas.
-        if valor_float > 500000000:
-            logger.warning(f"⚠️ Valor {valor_float} bloqueado por segurança (Suspeita de erro de input).")
-            return {"result": "Esse valor está acima do nosso limite operacional atual. Vamos conversar sobre um valor menor?"}
-
-        # 3. BUSCA NO POSTGRES
+        # 2. SANEAMENTO E BUSCA (USANDO O TOOLS.PY CORRIGIDO)
+        v = str(valor_raw).replace("R$", "").replace(".", "").replace(",", ".")
+        valor_float = float(v)
+        
+        # get_table_pricing.func acessa a lógica interna da @tool do LangChain
         resultado_bruto = get_table_pricing.func(produto=str(produto), valor_credito_desejado=valor_float)
 
-        # 4. RESUMO PARA VOZ (Para a Vapi ser rápida)
+        # 3. FILTRAGEM CIRÚRGICA PARA VOZ
         linhas = str(resultado_bruto).split('\n')
         opcoes = [l for l in linhas if "Parcela:" in l]
-
+        
         if opcoes:
-            # Pegamos as duas primeiras opções para dar escolha, mas sem ser longo
-            texto_opcoes = []
-            for opt in opcoes[:2]:
-                t = opt.replace("---", "").replace("â¢", "").replace("•", "").replace("|", "")
-                t = t.replace("Crédito:", "Para").replace("Parcela:", "a parcela é")
-                t = t.replace("R$", "").replace(",00", "")
-                texto_opcoes.append(t)
-            
-            texto = " Encontrei: " + " ou ".join(texto_opcoes)
-            texto = " ".join(texto.split()) # Limpa espaços duplos
+            # Pegamos apenas a 1ª opção, limpamos caracteres técnicos para o sintetizador não pausar
+            texto = opcoes[0].replace("|", "").replace("---", "").strip()
+            # Garante ponto final único
+            if not texto.endswith("."): texto += "."
+            texto_final = f"Encontrei uma ótima condição: {texto}"
         else:
-            texto = "Consegui consultar os valores, e as condições estão ótimas para esse montante."
+            texto_final = "Consegui consultar as taxas e as condições são muito favoráveis para este perfil."
 
-        if not texto.endswith("."): texto += "."
-
-        logger.info(f"✅ RESPOSTA ENVIADA: {texto}")
-        return {"result": texto}
+        logger.info(f"✅ ENVIANDO PRICING: {texto_final}")
+        
+        # 4. RETORNO OBRIGATÓRIO (results no plural e toolCallId)
+        return {
+            "results": [
+                {
+                    "toolCallId": call_id,
+                    "result": texto_final
+                }
+            ]
+        }
 
     except Exception as e:
         logger.error(f"❌ ERRO PRICING: {e}")
-        return {"result": "Tive um probleminha na consulta agora, mas me diga o valor de novo?"}
+        # Fallback para não derrubar a ligação
+        return {"results": [{"toolCallId": data.get("message", {}).get("toolCalls", [{}])[0].get("id", "1"), "result": "Tive um pequeno atraso na consulta. Pode me falar o valor novamente?"}]}
 
 @router.post("/agendar")
 async def vapi_agendar_tool(request: Request):
-    """Agendamento otimizado para fala natural."""
+    """Agendamento cirúrgico no padrão Vapi."""
     try:
-        data = await _safe_json(request)
-        args = _parse_tool_arguments(data)
+        data = await request.json()
+        tool_calls = data.get("message", {}).get("toolCalls", [])
         
-        data_hora = args.get("data_hora") or args.get("datetime") or args.get("dataHora") or args.get("date")
-        nome_cliente = args.get("nome_cliente") or args.get("name") or args.get("nome")
-
-        if not data_hora or not nome_cliente:
-            return {"result": "Poxa, faltou o nome ou o horário. Pode repetir?"}
-
-        # Formatação amigável (tira o T do ISO)
-        data_fala = str(data_hora).replace("T", " as ").split(".")[0]
+        if not tool_calls:
+            return {"error": "No tool calls found"}
+            
+        call_id = tool_calls[0].get("id")
+        args = tool_calls[0].get("function", {}).get("arguments", {})
         
-        logger.info(f"✅ AGENDADO: {nome_cliente} em {data_fala}")
+        nome = args.get("nome_cliente") or args.get("nome") or "Marcão"
+        data_hora = args.get("data_hora") or args.get("datetime")
+        
+        # Chama sua ferramenta de integração real (N8N)
+        # Passamos os argumentos para a função de agendamento que já existe no seu tools.py
+        status = api_request_tool.func(data_hora=str(data_hora), nome_cliente=str(nome))
+        
+        logger.info(f"✅ AGENDADO NO WEBHOOK: {nome} | Status: {status}")
+        
+        # Formatação para a Tina ler
+        texto_confirmacao = f"Prontinho, {nome}! Já deixei reservado aqui na agenda da Fernanda. Ela vai adorar falar com você!"
         
         return {
-            "result": f"Prontinho, {nome_cliente}! Ja reservei aqui na agenda da Fernanda para o dia {data_fala}. Ela vai adorar falar com voce!"
+            "results": [
+                {
+                    "toolCallId": call_id,
+                    "result": texto_confirmacao
+                }
+            ]
         }
     except Exception as e:
         logger.error(f"❌ ERRO AGENDAR: {e}")
-        return {"result": "Tive um problema na agenda, mas a Fernanda te liga logo."}
+        return {"results": [{"toolCallId": "1", "result": "Houve um erro ao salvar o agendamento."}]}

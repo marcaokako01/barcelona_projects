@@ -1,85 +1,76 @@
-# --- VERSAO FINAL CORRIGIDA DO MARCAO - FASE 3 (AZURE INTEGRATION) ---
-try:
-    from langchain_pinecone import PineconeVectorStore
-except ImportError:
-    from langchain_pinecone import Pinecone as PineconeVectorStore
-
 import requests
 import json
 import os
 import io
+import logging
+import psycopg2.extras # Importação no topo!
 from azure.storage.blob import BlobServiceClient
 from langchain_core.tools import tool 
 from langchain_openai import OpenAIEmbeddings
 from app.core.config import settings
 
+# Importação estratégica para evitar lentidão
+try:
+    from app.services.orchestrator import get_db_connection
+except ImportError:
+    # Caso haja erro de importação circular, tratamos aqui
+    get_db_connection = None 
+
+logger = logging.getLogger(__name__)
+
 
 @tool
 def get_table_pricing(produto: str, valor_credito_desejado: float) -> str:
     """
-    Consulta valores no Banco de Dados Postgres da Barcelona Partners.
+    Consulta valores no Banco de Dados Postgres de forma ultra-rápida e blindada.
     """
+    # Importações garantidas para evitar lentidão
     from app.services.orchestrator import get_db_connection
     import psycopg2.extras
 
-    # --- DICIONÁRIO DE TRADUÇÃO ABSOLUTO ---
-    # Não importa o que a IA mande, nós forçamos para o que está no banco
+    # Mapa atualizado com a categoria GERAL que você mencionou
     mapa = {
         "veiculo": "AUTO", "veículo": "AUTO", "veiculos": "AUTO", "veículos": "AUTO",
         "carro": "AUTO", "auto": "AUTO", "automovel": "AUTO", "automóvel": "AUTO",
         "caminhao": "PESADOS", "caminhão": "PESADOS", "pesados": "PESADOS", "pesado": "PESADOS",
         "imovel": "IMOVEIS", "imóvel": "IMOVEIS", "imoveis": "IMOVEIS", "imóveis": "IMOVEIS",
         "casa": "IMOVEIS", "apartamento": "IMOVEIS",
-        "moto": "MOTO", "motos": "MOTO", "motocicleta": "MOTO"
+        "moto": "MOTO", "motos": "MOTO", "motocicleta": "MOTO",
+        "geral": "GERAL", "todos": "GERAL"
     }
 
-    # Pega o termo, remove espaços e põe em minúsculo para bater no mapa
     termo_ia = str(produto).strip().lower()
     categoria_banco = mapa.get(termo_ia, termo_ia.upper())
 
     try:
         with get_db_connection() as conn:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                # Busca exata no banco (onde está AUTO, PESADOS, IMOVEIS)
+                # A MUDANÇA VITAL: UPPER(TRIM(produto)) ignora espaços e letras minúsculas no banco
                 cursor.execute("""
-                    SELECT credito, parcela_inteira, parcela_reduzida, prazo 
+                    SELECT credito, parcela_inteira, prazo 
                     FROM tabelas_consorcio 
-                    WHERE produto = %s
-                """, (categoria_banco,))
+                    WHERE UPPER(TRIM(produto)) = UPPER(TRIM(%s))
+                    ORDER BY ABS(credito - %s) ASC
+                    LIMIT 3
+                """, (categoria_banco, valor_credito_desejado))
                 planos = cursor.fetchall()
 
         if not planos:
-            return f"ERRO TÉCNICO: Não encontrei a categoria '{categoria_banco}' no banco."
+            logger.warning(f"⚠️ NENHUM PLANO ENCONTRADO para: {categoria_banco} (Valor: {valor_credito_desejado})")
+            return f"Não encontrei planos específicos para {categoria_banco} no valor de {valor_credito_desejado}."
 
-        processados = []
+        # Retorno limpo para o Webhook processar
+        msg = ""
         for p in planos:
-            v_num = float(p['credito'])
-            processados.append({
-                "valor_num": v_num,
-                "credito": f"{v_num:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'),
-                "p_inteira": f"{float(p['parcela_inteira']):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.'),
-                "prazo": p['prazo']
-            })
-
-        # Lógica de Teto Dinâmico
-        valor_max = max(item['valor_num'] for item in processados)
-        alvo = valor_credito_desejado
-        aviso = ""
-        
-        if valor_credito_desejado > valor_max:
-            alvo = valor_max
-            aviso = f"⚠️ Nota: Para R$ {valor_credito_desejado:,.2f}, usamos composição de cotas. Base (Cota Máxima):\n"
-
-        processados.sort(key=lambda x: abs(x['valor_num'] - alvo))
-        top_3 = processados[:3]
-        
-        msg = f"--- TABELA OFICIAL (POSTGRES) ---\n{aviso}"
-        for r in top_3:
-            msg += f"• Crédito: R$ {r['credito']} | Parcela: R$ {r['p_inteira']} em {r['prazo']} meses\n"
+            credito = f"{float(p['credito']):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            parcela = f"{float(p['parcela_inteira']):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            msg += f"Parcela: R$ {parcela} para um Crédito de R$ {credito} em {p['prazo']} meses.\n"
         
         return msg
     except Exception as e:
-        return f"Erro ao acessar banco: {str(e)}"
+        logger.error(f"❌ ERRO NO BANCO: {str(e)}")
+        return f"Erro técnico ao acessar a tabela."
+
 @tool
 def api_request_tool(nome: str, data_hora: str, telefone: str, resumo: str, classificacao: str):
     """Agendamento no N8N da Barcelona Partners."""

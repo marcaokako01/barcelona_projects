@@ -1,30 +1,56 @@
-import requests
-import json
+import pandas as pd
 
-# URL CORRETA BASEADA NO SEU NOVO MAIN.PY
-URL = "http://127.0.0.1:8000/api/v1/chat/whatsapp" 
+# 1. Configuração do Teste
+ARQUIVO_CSV = 'C:/Users/z3xai/Downloads/produto/tabelas_consorcio_202602231827.csv' # Certifique-se que o arquivo está na mesma pasta
 
-payload = {
-    "message": "Meu nome é Marcos e quero agendar para amanhã às 15h",
-    "phone": "5511966103928"
+# 2. O Mapa de Categorias (Exatamente como no seu tools.py)
+mapa = {
+    "veiculo": "AUTO", "veículo": "AUTO", "veiculos": "AUTO", "veículos": "AUTO",
+    "carro": "AUTO", "auto": "AUTO", "automovel": "AUTO", "automóvel": "AUTO",
+    "caminhao": "PESADOS", "caminhão": "PESADOS", "pesados": "PESADOS", "pesado": "PESADOS",
+    "imovel": "IMOVEIS", "imóvel": "IMOVEIS", "imoveis": "IMOVEIS", "imóveis": "IMOVEIS",
+    "casa": "IMOVEIS", "apartamento": "IMOVEIS",
+    "moto": "MOTO", "motos": "MOTO", "motocicleta": "MOTO",
+    "geral": "GERAL", "todos": "GERAL"
 }
 
-print("--- Iniciando teste local de Rota ---")
-try:
-    # Note que agora enviamos direto o dicionário que o WhatsAppRequest espera
-    response = requests.post(URL, json=payload, timeout=10)
-    print(f"Status Code: {response.status_code}")
+def simular_get_table_pricing(produto_input, valor_input):
+    print(f"\n🔍 SIMULANDO: {produto_input} de R$ {valor_input:,.2f}")
     
-    if response.status_code == 200:
-        data = response.json()
-        print("\nRESPOSTA JSON COMPLETA:")
-        print(json.dumps(data, indent=4, ensure_ascii=False))
-        
-        if data.get("action"):
-            print("\n✅ SUCESSO: Action identificado!")
-        else:
-            print("\n⚠️ AVISO: Rota OK, mas Action ainda é null (Precisa ajustar o Prompt).")
-    else:
-        print(f"❌ ERRO {response.status_code}: Verifique se o uvicorn está rodando.")
-except Exception as e:
-    print(f"Erro de conexão: {e}")
+    # Carrega o CSV
+    df = pd.read_csv(ARQUIVO_CSV)
+    
+    # Normalização
+    termo_ia = str(produto_input).strip().lower()
+    categoria_banco = mapa.get(termo_ia, termo_ia.upper())
+    
+    # Simula o SQL: WHERE UPPER(TRIM(produto)) = %s
+    # Isso limpa espaços invisíveis que podem vir do CSV
+    filtro = df[df['produto'].str.strip().str.upper() == categoria_banco.strip().upper()].copy()
+    
+    if filtro.empty:
+        return f"❌ ERRO: Produto '{categoria_banco}' não encontrado no banco."
+    
+    # Simula o ORDER BY ABS(credito - valor) LIMIT 3
+    filtro['distancia'] = (filtro['credito'] - valor_input).abs()
+    resultados = filtro.sort_values(by='distancia').head(3)
+    
+    # Formatação da Mensagem
+    msg = f"--- RESULTADO PARA {categoria_banco} ---\n"
+    for _, row in resultados.iterrows():
+        credito = f"R$ {row['credito']:,.2f}"
+        parcela = f"R$ {row['parcela_inteira']:,.2f}"
+        msg += f"• Crédito: {credito} | Parcela: {parcela} em {row['prazo']} meses\n"
+    
+    return msg
+
+# --- ÁREA DE TESTES ---
+if __name__ == "__main__":
+    # Teste 1: Imóvel de 1 Milhão (O que estava falhando)
+    print(simular_get_table_pricing("imovel", 1000000))
+    
+    # Teste 2: Carro de 180 mil
+    print(simular_get_table_pricing("carro", 180000))
+    
+    # Teste 3: Caminhão (Pesados)
+    print(simular_get_table_pricing("caminhão", 450000))
