@@ -4,8 +4,9 @@ $APP_NAME = "barcelona-ai-vapi-web"
 $RESOURCE_GROUP = "GrupoFinal" 
 $IMAGE_TAG = "barcelona-vapi-gateway:latest"
 
-Write-Host "--- Iniciando Build da Imagem ---" -ForegroundColor Cyan
-docker build -t "$ACR_NAME.azurecr.io/$IMAGE_TAG" .
+Write-Host "--- Iniciando Build da Imagem (SEM CACHE) ---" -ForegroundColor Cyan
+# Adicionada a flag --no-cache para garantir que as correções no orquestrador e prompts sejam aplicadas
+docker build --no-cache -t "$ACR_NAME.azurecr.io/$IMAGE_TAG" .
 
 Write-Host "--- Autenticando no Azure ACR ($ACR_NAME) ---" -ForegroundColor Cyan
 az acr login --name $ACR_NAME
