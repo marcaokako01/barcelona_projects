@@ -38,3 +38,5 @@ powershell -ExecutionPolicy Bypass -File .\deploy.ps1 -SkipLogTail
 
 #Acompnhar os logs
 az webapp log tail --resource-group "GrupoFinal" --name "barcelona-ai-vapi-web"
+
+powershell -ExecutionPolicy Bypass -File .\deploy_safe.ps1

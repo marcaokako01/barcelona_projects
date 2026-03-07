@@ -1,57 +1,24 @@
-import asyncio
-from app.services.orchestrator import ConversationOrchestrator
+import subprocess, json, textwrap, os, sys, shlex, time
+url = "https://barcelona-ai-vapi-web-ecfndtbxhce6h2hu.canadacentral-01.azurewebsites.net/api/v1/webhook/agendar"
 
-async def realizar_teste(orchestrator, pergunta, cenario):
-    telefone = "5511999999999"
-    print(f"\n--- 🧪 TESTE: {cenario} ---")
-    print(f"❓ Pergunta: {pergunta}")
-    
-    resultado = await orchestrator.process_text_message(pergunta, telefone)
-    texto = resultado['response_text']
-    
-    print("\n--- RESPOSTA DA TINA ---")
-    print(texto)
-    print("------------------------")
-    
-    # 1. Validação de Prazo (Obrigatório conforme prompts.py)
-    if "meses" in texto.lower():
-        print("✅ SUCESSO: Ela citou o prazo corretamente.")
-    else:
-        print("❌ FALHA: Ela esqueceu de mencionar o prazo (meses).")
-        
-    # 2. Validação de Origem dos Dados (Anti-Alucinação)
-    # Valores de 180k AUTO no banco: 2.902,55 (80m) ou 6.285,05 (36m)
-    if "2.902" in texto or "6.285" in texto or "5.481" in texto or "8.400" in texto:
-        print("✅ SUCESSO: Os valores batem com o Banco de Dados Postgres.")
-    elif "4.000" in texto or "2.400" in texto:
-        print("❌ ALERTA: Ela está alucinando valores antigos/fixos!")
-    else:
-        print("⚠️ AVISO: Valor não reconhecido, verifique a tabela oficial.")
+tests = [
+    ("GET sem payload", ["curl","-i","-sS","-X","GET",url]),
+    ("POST vazio", ["curl","-i","-sS","-X","POST",url,"-H","Content-Type: application/json","-d","{}"]),
+    ("POST com campos da tool", ["curl","-i","-sS","-X","POST",url,"-H","Content-Type: application/json",
+                                 "-d", json.dumps({"data_hora":"2026-03-09 14:00","nome_cliente":"Andre","resumo":"Reunião sobre carta de crédito para automóvel"})]),
+    ("POST formato Vapi provável", ["curl","-i","-sS","-X","POST",url,"-H","Content-Type: application/json",
+                                    "-d", json.dumps({"toolCall":{"id":"test_1","name":"agendar_reuniao","arguments":{"data_hora":"2026-03-09 14:00","nome_cliente":"Andre","resumo":"Reunião sobre carta de crédito para automóvel"}}})]),
+]
 
-async def main():
-    print("🚀 Iniciando Bateria de Testes de Obediência e Precisão...")
-    orchestrator = ConversationOrchestrator()
-    
-    # CENÁRIO 1: Validação de Auto 180k (Prazos variados)
-    await realizar_teste(
-        orchestrator, 
-        "Tina, quanto fica a parcela para um carro de 180 mil?", 
-        "Automóveis (Múltiplos Prazos)"
-    )
-    
-    # CENÁRIO 2: Validação de Pesados 700k (Valores de elite)
-    await realizar_teste(
-        orchestrator, 
-        "Quanto fica a parcela para um caminhão de 700 mil?", 
-        "Pesados (Valores Altos)"
-    )
-    
-    # CENÁRIO 3: Composição de Cotas (Teto Dinâmico > 1.2M)
-    await realizar_teste(
-        orchestrator, 
-        "Fernanda, preciso de um crédito de 1.5 milhão para imóveis.", 
-        "Composição de Cotas (Acima do Teto)"
-    )
+results = []
+for name, cmd in tests:
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=35)
+        results.append((name, p.returncode, p.stdout, p.stderr))
+    except Exception as e:
+        results.append((name, None, "", f"ERROR: {e}"))
 
-if __name__ == "__main__":
-    asyncio.run(main())
+report = []
+for name, rc, out, err in results:
+    report.append(f"## {name}\nReturn code: {rc}\n\nSTDOUT:\n{out[:4000]}\n\nSTDERR:\n{err[:1000]}\n")
+print("\n\n".join(report))

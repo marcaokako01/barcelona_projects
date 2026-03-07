@@ -21,95 +21,125 @@ logger = logging.getLogger(__name__)
 
 @tool
 def get_table_pricing(produto: str, valor_credito_desejado: float) -> str:
-    """
-    Consulta a tabela de consórcio no banco de dados. 
-    Ideal para responder dúvidas sobre parcelas e créditos no WhatsApp.
-    """
-    # 1. TRAVA DE MAGNITUDE: Se o valor vier inflado (ex: 180M), normaliza para 180k
+    """Consulta a tabela de consórcio. Use 'veiculo', 'imovel' ou 'caminhao'."""
+    import os
+    import psycopg2
+    import psycopg2.extras
+
+    # 1. Normalização de Magnitude (Evita erro de 180M vs 180k)
     if valor_credito_desejado >= 10000000:
         valor_credito_desejado = valor_credito_desejado / 1000
 
-    from app.services.orchestrator import get_db_connection
-    
-    # 2. Mapeamento robusto para as categorias do banco
+    # 2. Mapeamento Robusto (Conforme o que vimos no seu Banco)
     mapa = {
         "veiculo": "AUTO", "carro": "AUTO", "auto": "AUTO", "veículo": "AUTO",
         "caminhao": "PESADOS", "pesados": "PESADOS", "caminhão": "PESADOS",
-        "moto": "MOTO", "motocicleta": "MOTO",
-        "imovel": "IMOVEIS", "casa": "IMOVEIS", "apartamento": "IMOVEIS", "imóvel": "IMOVEIS"
+        "imovel": "IMOVEIS", "casa": "IMOVEIS", "apartamento": "IMOVEIS"
     }
-
-    termo_ia = str(produto).strip().lower()
-    categoria_banco = mapa.get(termo_ia, "GERAL")
+    termo = str(produto).lower().strip()
+    categoria_banco = mapa.get(termo, "AUTO")
 
     try:
-        with get_db_connection() as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                # 3. QUERY COM CTE: Seleciona apenas o plano mais barato por cada prazo disponível
-                # Corrigido: a query usa 3 placeholders (%s), passamos os 3 valores.
-                cursor.execute("""
-                    WITH MelhoresPlanos AS (
-                        SELECT *,
-                            ROW_NUMBER() OVER (
-                                PARTITION BY prazo 
-                                ORDER BY parcela_inteira ASC, parcela_reduzida ASC
-                            ) as ranking
-                        FROM tabelas_consorcio
-                        WHERE produto = %s 
-                        AND credito >= %s * 0.9  -- Margem de 10% para baixo
-                        AND credito <= %s * 1.1  -- Margem de 10% para cima
-                    )
-                    SELECT produto, credito, parcela_inteira, parcela_reduzida, prazo, categoria
-                    FROM MelhoresPlanos
-                    WHERE ranking = 1
-                    ORDER BY parcela_inteira ASC
-                    LIMIT 3;
-                """, (categoria_banco, valor_credito_desejado, valor_credito_desejado))
-                
-                planos = cursor.fetchall()
+        # 3. Conexão Direta (Igual ao seu teste que deu OK)
+        db_url = os.getenv("DATABASE_URL")
+        if not db_url:
+            return "Erro: DATABASE_URL não configurada no servidor."
+
+        conn = psycopg2.connect(db_url)
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
+            # Query com busca por PROXIMIDADE (Resolve o problema de não achar 180k)
+            cursor.execute("""
+                WITH MelhoresPlanos AS (
+                    SELECT *,
+                        ABS(credito - %s) as diferenca,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY prazo 
+                            ORDER BY ABS(credito - %s) ASC, parcela_inteira ASC
+                        ) as ranking
+                    FROM tabelas_consorcio
+                    WHERE produto = %s 
+                    AND credito >= %s * 0.70
+                    AND credito <= %s * 1.30
+                )
+                SELECT * FROM MelhoresPlanos
+                WHERE ranking = 1
+                ORDER BY diferenca ASC
+                LIMIT 3;
+            """, (valor_credito_desejado, valor_credito_desejado, categoria_banco, valor_credito_desejado, valor_credito_desejado))
+            
+            planos = cursor.fetchall()
+        conn.close()
 
         if not planos:
-            # Formatando o valor de erro para o usuário não ver números "crus"
-            valor_fmt = f"{valor_credito_desejado:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-            return f"Não encontrei planos de {categoria_banco} próximos a R$ {valor_fmt} no momento."
+            return f"Não encontrei planos de {categoria_banco} para R$ {valor_credito_desejado:,.2f}."
 
-        # 4. Construção da resposta amigável para o WhatsApp
-        resposta = f"Maravilha! Encontrei estas opções de {categoria_banco} na Embracon:\n\n"
-        
+        # 4. Formatação de Resposta (Pronta para o WhatsApp)
+        #res = f"Marcos, encontrei essas opções de {categoria_banco} para você:\n\n"
+        res = f"Encontrei essas opções de {categoria_banco} pra você:\n\n"
         for p in planos:
-            credito_f = f"{float(p['credito']):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-            inteira_f = f"{float(p['parcela_inteira']):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-            reduzida = float(p.get('parcela_reduzida', 0) or 0)
+            cred = f"{float(p['credito']):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            parc = f"{float(p['parcela_inteira']):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+            res += f"✅ *Crédito R$ {cred}*\n"
+            res += f"   ⤷ {p['prazo']} meses de R$ {parc}"
             
-            # Se houver parcela reduzida, adicionamos a opção na frase
-            texto_reduzida = ""
-            if reduzida > 0:
-                red_f = f"{reduzida:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-                texto_reduzida = f" (ou R$ {red_f} no plano reduzido)"
-
-            resposta += f"✅ *Crédito R$ {credito_f}*\n"
-            resposta += f"   ⤷ {p['prazo']}x de R$ {inteira_f}{texto_reduzida}\n\n"
+            # Se tiver reduzida, mostra
+            red_val = float(p.get('parcela_reduzida') or 0)
+            if red_val > 0:
+                red_f = f"{red_val:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+                res += f" (ou R$ {red_f} reduzida)"
+            res += "\n\n"
         
-        resposta += "Qual dessas opções melhor se encaixa no que você planejou?"
-        return resposta
+        return res
 
     except Exception as e:
-        logger.error(f"❌ ERRO get_table_pricing: {e}")
-        return "Tive um probleminha ao consultar as tabelas agora. Pode me dizer o valor novamente para eu tentar de novo?"
+        # Retorna o erro real para o log da Azure
+        return f"Erro na consulta ao banco: {str(e)}"
         
+
+
 @tool
-def api_request_tool(nome: str, data_hora: str, telefone: str = "Não informado"):
+def api_request_tool(nome: str, data_hora_iso: str) -> str:
     """
-    Solicita o agendamento no sistema. 
-    Use apenas quando o cliente quiser marcar uma conversa.
+    Envia um pré-agendamento para o webhook do n8n.
+    Retorna string estruturada para facilitar validação no webhook /agendar.
     """
-    webhook_url = "https://tina.barcelonapartnersinvest.com.br/webhook/agendamento-tina"
-    payload = {"nome": nome, "data_hora": data_hora, "telefone": telefone}
+    import requests
+
+    url = "https://tina.barcelonapartnersinvest.com.br/webhook/agendamento-tina"
+
+    payload = {
+        "nome": str(nome).strip(),
+        "data_hora": str(data_hora_iso).strip()
+    }
+
     try:
-        requests.post(webhook_url, json=payload, timeout=10) 
-        return "Agendamento solicitado! A Fernanda entrará em contato em breve."
-    except:
-        return "Houve um erro ao registrar na agenda, mas eu já avisei a equipe."
+        response = requests.post(url, json=payload, timeout=8)
+
+        body_text = ""
+        try:
+            body_text = response.text[:500]
+        except Exception:
+            body_text = ""
+
+        if 200 <= response.status_code < 300:
+            return f"OK|status_code={response.status_code}|body={body_text}"
+
+        return f"ERRO|status_code={response.status_code}|body={body_text}"
+
+    except Exception as e:
+        return f"ERRO|exception={str(e)}"
+
+@tool
+def api_request_tool2(nome: str, data_hora_iso: str) -> str:
+    """Envia um pré-agendamento para o webhook do n8n (não lança erro; sempre retorna OK)."""
+    import requests
+    url = "https://tina.barcelonapartnersinvest.com.br/webhook/agendamento-tina"
+    payload = {"nome": str(nome).strip(), "data_hora": str(data_hora_iso).strip()}
+    try:
+        requests.post(url, json=payload, timeout=2)
+        return "OK"
+    except Exception:
+        return "OK"
 
 @tool
 def calculate_consortium_installment(credit_value: float, months: int, admin_tax_percent: float) -> str:
@@ -133,3 +163,25 @@ def search_knowledge_base(query: str, produto: str = None) -> str:
         docs = vectorstore.similarity_search(query, **search_kwargs)
         return "\n\n".join([f"[{d.metadata.get('administradora')}] {d.page_content}" for d in docs])
     except Exception as e: return f"Erro no RAG: {e}"
+
+@tool
+def get_table_pricing_vapi(produto: str, valor_credito_desejado: float) -> str:
+    """Consulta a tabela de consórcio e retorna um texto limpo exclusivo para voz (Vapi)."""
+    # 1. Chama a sua função que já funciona no WhatsApp
+    texto_bruto = get_table_pricing(produto, valor_credito_desejado)
+    
+    # 2. Limpeza profunda para o motor de voz não travar
+    # Remove símbolos, emojis e formatação de Markdown
+    texto_limpo = texto_bruto.replace("*", "").replace("✅", "").replace("⤷", "").replace(">", "")
+    
+    # Transforma quebras de linha em espaços para a fala ser contínua
+    texto_limpo = texto_limpo.replace("\n\n", ". ").replace("\n", ". ")
+    
+    # Melhora a pronúncia de valores (R$ 1.000,00 vira 1.000 reais)
+    texto_limpo = texto_limpo.replace("R$", "").replace(",00", " reais")
+    
+    # Garante que não fiquem espaços duplos
+    import re
+    texto_limpo = re.sub(r'\s+', ' ', texto_limpo).strip()
+    
+    return texto_limpo

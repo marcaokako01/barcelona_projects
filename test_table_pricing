@@ -1,0 +1,40 @@
+import requests
+import json
+
+# Configurações do teste
+url = "https://barcelona-ai-vapi-web-ecfndtbxhce6h2hu.canadacentral-01.azurewebsites.net/api/v1/webhook/pricing"
+payload = {
+    "message": {
+        "toolCalls": [
+            {
+                "function": {
+                    "name": "get_table_pricing",
+                    "arguments": {
+                        "produto": "automóvel",
+                        "valor_credito_desejado": 160000
+                    }
+                }
+            }
+        ]
+    }
+}
+
+def testar_ferramenta():
+    print(f"🚀 Enviando requisição para: {url}")
+    try:
+        response = requests.post(url, json=payload, timeout=10)
+        
+        print(f"✅ Status Code: {response.status_code}")
+        
+        if response.status_code == 200:
+            print("📦 Retorno da sua API:")
+            print(json.dumps(response.json(), indent=4, ensure_ascii=False))
+        else:
+            print("❌ Erro na API. Verifique o servidor.")
+            print(response.text)
+            
+    except Exception as e:
+        print(f"🚨 Erro ao conectar: {e}")
+
+if __name__ == "__main__":
+    testar_ferramenta()
