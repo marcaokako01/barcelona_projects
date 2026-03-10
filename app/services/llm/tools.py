@@ -136,7 +136,7 @@ def get_table_pricing_vapi(produto: str, valor_credito_desejado: float) -> str:
 def api_request_tool(nome: str, data_hora_iso: str) -> str:
     """
     Envia um pré-agendamento para o webhook do n8n.
-    Retorna string estruturada para validação no webhook.
+    Só retorna OK quando houver confirmação real de agendamento.
     """
     import requests
 
@@ -144,24 +144,149 @@ def api_request_tool(nome: str, data_hora_iso: str) -> str:
 
     payload = {
         "nome": str(nome).strip(),
-        "data_hora": str(data_hora_iso).strip(),
+        "data_hora": str(data_hora_iso).strip()
     }
 
     try:
-        response = requests.post(url, json=payload, timeout=8)
+        response = requests.post(url, json=payload, timeout=15)
+
+        body_text = ""
+        body_json = {}
 
         try:
-            body_text = response.text[:500]
+            body_text = response.text[:1000]
         except Exception:
             body_text = ""
 
-        if 200 <= response.status_code < 300:
-            return f"OK|status_code={response.status_code}|body={body_text}"
+        try:
+            body_json = response.json() if response.text else {}
+        except Exception:
+            body_json = {}
 
-        return f"ERRO|status_code={response.status_code}|body={body_text}"
+        if 200 <= response.status_code < 300:
+            status = str(body_json.get("status", "")).strip().lower()
+            event_id = str(body_json.get("event_id", "")).strip()
+            inicio = str(body_json.get("inicio", "")).strip()
+            titulo = str(body_json.get("titulo", "")).strip()
+
+            if status == "agendado" or event_id:
+                return (
+                    f"OK"
+                    f"|status_code={response.status_code}"
+                    f"|status={status}"
+                    f"|event_id={event_id}"
+                    f"|inicio={inicio}"
+                    f"|titulo={titulo}"
+                )
+
+            return (
+                f"ERRO"
+                f"|status_code={response.status_code}"
+                f"|body={body_text}"
+            )
+
+        return (
+            f"ERRO"
+            f"|status_code={response.status_code}"
+            f"|body={body_text}"
+        )
 
     except Exception as e:
         logger.exception(f"Erro em api_request_tool: {e}")
+        return f"ERRO|exception={str(e)}"
+
+
+@tool
+def create_calendar_event(nome: str, data_hora_iso: str) -> str:
+    """
+    Cria um evento diretamente no Google Calendar usando OAuth.
+    Só retorna OK quando o evento for realmente criado.
+    """
+    from datetime import datetime, timedelta
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
+    from googleapiclient.discovery import build
+    import json
+
+    try:
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        token_path = os.getenv("GOOGLE_TOKEN_FILE", os.path.join(base_dir, "app", "credentials", "token.json"))
+        #token_path = os.getenv("GOOGLE_TOKEN_FILE", "app/credential/token.json")
+        calendar_id = os.getenv("GOOGLE_CALENDAR_ID", "primary")
+        timezone = os.getenv("GOOGLE_CALENDAR_TIMEZONE", "America/Sao_Paulo")
+        logger.info(f"📁 GOOGLE_TOKEN_FILE resolvido para: {token_path}")
+        logger.info(f"📁 token existe? {os.path.exists(token_path)}")
+
+        if not os.path.exists(token_path):
+            return f"ERRO|Arquivo token não encontrado em: {token_path}"
+
+        with open(token_path, "r", encoding="utf-8") as f:
+            token_data = json.load(f)
+
+        credentials = Credentials.from_authorized_user_info(
+            token_data,
+            scopes=["https://www.googleapis.com/auth/calendar"]
+        )
+
+        if credentials.expired and credentials.refresh_token:
+            credentials.refresh(Request())
+
+            with open(token_path, "w", encoding="utf-8") as token_file:
+                token_file.write(credentials.to_json())
+
+        service = build("calendar", "v3", credentials=credentials)
+
+        raw_dt = str(data_hora_iso).strip()
+
+        try:
+            if "T" in raw_dt:
+                inicio = datetime.fromisoformat(raw_dt)
+            else:
+                inicio = datetime.strptime(raw_dt, "%Y-%m-%d %H:%M")
+        except Exception:
+            return f"ERRO|Formato de data inválido: {raw_dt}"
+
+        fim = inicio + timedelta(minutes=30)
+
+        event_body = {
+            "summary": f"Reunião Consórcio - {str(nome).strip()}",
+            "description": "Reunião com Fernanda Aro",
+            "start": {
+                "dateTime": inicio.isoformat(),
+                "timeZone": timezone,
+            },
+            "end": {
+                "dateTime": fim.isoformat(),
+                "timeZone": timezone,
+            },
+        }
+
+        created_event = service.events().insert(
+            calendarId=calendar_id,
+            body=event_body
+        ).execute()
+
+        event_id = str(created_event.get("id", "")).strip()
+        confirmed_start = (
+            created_event.get("start", {}).get("dateTime")
+            or created_event.get("start", {}).get("date")
+            or ""
+        )
+        summary = str(created_event.get("summary", "")).strip()
+
+        if not event_id:
+            return "ERRO|Evento criado sem id retornado"
+
+        return (
+            f"OK"
+            f"|status=agendado"
+            f"|event_id={event_id}"
+            f"|inicio={confirmed_start}"
+            f"|titulo={summary}"
+        )
+
+    except Exception as e:
+        logger.exception(f"Erro em create_calendar_event: {e}")
         return f"ERRO|exception={str(e)}"
 
 

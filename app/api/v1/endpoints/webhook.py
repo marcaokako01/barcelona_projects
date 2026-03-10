@@ -5,7 +5,7 @@ from app.services.orchestrator import ConversationOrchestrator
 from app.services.llm.tools import (
     get_table_pricing,
     get_table_pricing_vapi,
-    api_request_tool,
+    create_calendar_event,
 )
 
 import time
@@ -320,7 +320,6 @@ async def vapi_pricing_tool(request: Request):
 
         valor_float = _sanitize_money_to_float(valor_raw)
 
-        # Pode manter get_table_pricing_vapi como fallback se quiser
         try:
             resultado_bruto = get_table_pricing.func(
                 produto=str(produto),
@@ -374,7 +373,7 @@ async def vapi_pricing_tool(request: Request):
 
 @router.post("/agendar")
 async def vapi_agendar_tool(request: Request):
-    """Tool de agendamento compatível com Vapi."""
+    """Tool de agendamento direto no Google Calendar."""
     call_id = "1"
 
     try:
@@ -427,36 +426,53 @@ async def vapi_agendar_tool(request: Request):
             )
 
         logger.info(
-            f"📤 Enviando pré-agendamento | nome={nome} | data_hora={data_hora} | resumo={resumo}"
+            f"📤 Criando evento no Google Calendar | nome={nome} | data_hora={data_hora} | resumo={resumo}"
         )
 
-        status = api_request_tool.func(
+        status = create_calendar_event.func(
             nome=str(nome).strip(),
             data_hora_iso=str(data_hora).strip()
         )
 
+        status_str = str(status or "").strip()
         logger.info(
-            f"📩 Retorno api_request_tool | nome={nome} | data_hora={data_hora} | status={status}"
+            f"📩 Retorno create_calendar_event | nome={nome} | data_hora={data_hora} | status={status_str}"
         )
 
-        status_str = str(status or "").strip()
-
         if not status_str.startswith("OK"):
+            logger.error(f"❌ Falha create_calendar_event: {status_str}")
             return JSONResponse(
                 status_code=500,
                 content={
                     "results": [
                         {
                             "toolCallId": call_id,
-                            "result": "Não consegui concluir o agendamento agora. Pode me passar outro horário?"
+                            "result": (
+                                f"Ainda não consegui confirmar esse horário na agenda da Fernanda. "
+                                f"Detalhe técnico: {status_str}"
+                            )
                         }
                     ]
                 }
             )
 
+        partes = {}
+        for item in status_str.split("|")[1:]:
+            if "=" in item:
+                k, v = item.split("=", 1)
+                partes[k] = v
+
+        inicio_confirmado = partes.get("inicio", str(data_hora).strip())
+        titulo_confirmado = partes.get("titulo", str(nome).strip())
+        event_id = partes.get("event_id", "")
+
+        logger.info(
+            f"✅ AGENDAMENTO CONFIRMADO | event_id={event_id} | inicio={inicio_confirmado} | titulo={titulo_confirmado}"
+        )
+
         texto_confirmacao = (
-            f"Prontinho, {nome}! Já deixei reservado aqui na agenda da Fernanda "
-            f"para {data_hora}. Ela vai adorar falar com você!"
+            f"Prontinho, {nome}! Seu horário foi confirmado para {inicio_confirmado}. "
+            f"A Fernanda vai adorar falar com você!"
         )
 
         return JSONResponse(
