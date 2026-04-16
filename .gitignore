@@ -7,12 +7,13 @@ app.zip
 
 .env
 
-# Virtualenv
+# Credenciais e Tokens
+app/credentials/
+teste_local.py
+.env
+
+# Pastas de ambiente virtual e cache
+venv/
 .venv/
 __pycache__/
 *.pyc
-
-app/credentials/token.json
-app/credentials/google_oauth_client.json
-token.json
-google_oauth_client.json

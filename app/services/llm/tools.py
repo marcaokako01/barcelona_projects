@@ -200,28 +200,47 @@ def api_request_tool(nome: str, data_hora_iso: str) -> str:
 def create_calendar_event(nome: str, data_hora_iso: str) -> str:
     """
     Cria um evento diretamente no Google Calendar usando OAuth.
-    Só retorna OK quando o evento for realmente criado.
+    Lê primeiro GOOGLE_TOKEN_JSON_B64; se não existir, usa GOOGLE_TOKEN_JSON;
+    se não existir, usa GOOGLE_TOKEN_FILE.
     """
     from datetime import datetime, timedelta
     from google.oauth2.credentials import Credentials
     from google.auth.transport.requests import Request
     from googleapiclient.discovery import build
     import json
+    import base64
 
     try:
-        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        token_path = os.getenv("GOOGLE_TOKEN_FILE", os.path.join(base_dir, "app", "credentials", "token.json"))
-        #token_path = os.getenv("GOOGLE_TOKEN_FILE", "app/credential/token.json")
+        token_json_b64 = os.getenv("GOOGLE_TOKEN_JSON_B64", "").strip()
+        token_json_env = os.getenv("GOOGLE_TOKEN_JSON", "").strip()
+        token_path = os.getenv("GOOGLE_TOKEN_FILE", "token.json")
         calendar_id = os.getenv("GOOGLE_CALENDAR_ID", "primary")
         timezone = os.getenv("GOOGLE_CALENDAR_TIMEZONE", "America/Sao_Paulo")
-        logger.info(f"📁 GOOGLE_TOKEN_FILE resolvido para: {token_path}")
-        logger.info(f"📁 token existe? {os.path.exists(token_path)}")
 
-        if not os.path.exists(token_path):
-            return f"ERRO|Arquivo token não encontrado em: {token_path}"
+        token_data = None
 
-        with open(token_path, "r", encoding="utf-8") as f:
-            token_data = json.load(f)
+        # 1) Preferência: Base64
+        if token_json_b64:
+            try:
+                decoded = base64.b64decode(token_json_b64).decode("utf-8")
+                token_data = json.loads(decoded)
+            except Exception as e:
+                return f"ERRO|GOOGLE_TOKEN_JSON_B64 inválido: {str(e)}"
+
+        # 2) JSON cru
+        elif token_json_env:
+            try:
+                token_data = json.loads(token_json_env)
+            except Exception as e:
+                return f"ERRO|GOOGLE_TOKEN_JSON inválido: {str(e)}"
+
+        # 3) Arquivo
+        elif os.path.exists(token_path):
+            with open(token_path, "r", encoding="utf-8") as f:
+                token_data = json.load(f)
+
+        else:
+            return f"ERRO|Nenhum token encontrado. Nem GOOGLE_TOKEN_JSON_B64, nem GOOGLE_TOKEN_JSON, nem arquivo em: {token_path}"
 
         credentials = Credentials.from_authorized_user_info(
             token_data,
@@ -230,9 +249,6 @@ def create_calendar_event(nome: str, data_hora_iso: str) -> str:
 
         if credentials.expired and credentials.refresh_token:
             credentials.refresh(Request())
-
-            with open(token_path, "w", encoding="utf-8") as token_file:
-                token_file.write(credentials.to_json())
 
         service = build("calendar", "v3", credentials=credentials)
 
@@ -288,7 +304,6 @@ def create_calendar_event(nome: str, data_hora_iso: str) -> str:
     except Exception as e:
         logger.exception(f"Erro em create_calendar_event: {e}")
         return f"ERRO|exception={str(e)}"
-
 
 @tool
 def calculate_consortium_installment(
